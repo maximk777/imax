@@ -2787,9 +2787,11 @@ version = "0.1.0"
 dependencies = [
  "bs58",
  "dioxus",
+ "dirs",
  "imax-core",
  "iroh",
  "tokio",
+ "tokio-util",
  "uuid",
 ]
 

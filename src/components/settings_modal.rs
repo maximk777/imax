@@ -1,14 +1,30 @@
 use dioxus::prelude::*;
 use dioxus::document::eval;
-use crate::state::{SHOW_SETTINGS_MODAL, NICKNAME, SEED_PHRASE};
+use imax_core::storage::models;
+use crate::state::{
+    SHOW_SETTINGS_MODAL, NICKNAME, SEED_PHRASE, ACTIVE_PROFILE_ID,
+    IS_ONBOARDED, ADDING_PROFILE, db, switch_profile,
+};
 
 #[component]
 pub fn SettingsModal() -> Element {
     let show = *SHOW_SETTINGS_MODAL.read();
     let nickname = NICKNAME.read().clone();
     let seed = SEED_PHRASE.read().clone();
+    let active_profile_id = *ACTIVE_PROFILE_ID.read();
     let mut show_seed = use_signal(|| false);
     let mut seed_copied = use_signal(|| false);
+
+    // Load profiles every time modal is shown (no memo — DB is the source of truth)
+    let profiles = if show {
+        let db_guard = db();
+        let list = models::get_all_profiles(&db_guard).unwrap_or_default();
+        drop(db_guard);
+        println!("[imax] Settings: loaded {} profiles", list.len());
+        list
+    } else {
+        vec![]
+    };
 
     if !show {
         return rsx! {};
@@ -36,7 +52,7 @@ pub fn SettingsModal() -> Element {
                     }
                 }
 
-                // Profile
+                // Current profile
                 div { class: "settings-profile",
                     div { class: "settings-avatar", "{nickname.chars().next().unwrap_or('?').to_uppercase()}" }
                     div { class: "settings-profile-info",
@@ -45,12 +61,54 @@ pub fn SettingsModal() -> Element {
                     }
                 }
 
+                // Profiles section
+                div { class: "settings-section",
+                    p { class: "settings-section-title", "Profiles" }
+                    div { class: "profile-list",
+                        for profile in profiles.iter() {
+                            {
+                                let pid = profile.id;
+                                let is_active = pid == active_profile_id;
+                                let first_char = profile.nickname.chars().next().unwrap_or('?').to_uppercase().to_string();
+                                let profile_nick = profile.nickname.clone();
+                                rsx! {
+                                    div {
+                                        class: if is_active { "profile-item active" } else { "profile-item" },
+                                        div { class: "profile-item-avatar", "{first_char}" }
+                                        div { class: "profile-item-name", "{profile_nick}" }
+                                        if is_active {
+                                            span { class: "profile-active-badge", "\u{25CF}" }
+                                        } else {
+                                            button {
+                                                class: "profile-switch-btn",
+                                                onclick: move |_| {
+                                                    switch_profile(pid);
+                                                    *SHOW_SETTINGS_MODAL.write() = false;
+                                                },
+                                                "Switch"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        button {
+                            class: "profile-add-btn",
+                            onclick: move |_| {
+                                *IS_ONBOARDED.write() = false;
+                                *ADDING_PROFILE.write() = true;
+                                *SHOW_SETTINGS_MODAL.write() = false;
+                            },
+                            "+ New Profile"
+                        }
+                    }
+                }
+
                 // Seed phrase
                 div { class: "settings-section",
                     p { class: "settings-section-title", "Seed Phrase" }
 
                     if *show_seed.read() {
-                        // Show seed phrase
                         div { class: "seed-phrase-box",
                             div { class: "seed-grid",
                                 {
@@ -84,7 +142,6 @@ pub fn SettingsModal() -> Element {
                             "Hide"
                         }
                     } else {
-                        // Hidden state
                         div { class: "seed-hidden",
                             p { class: "seed-hidden-text", "Your seed phrase is hidden for security" }
                             button {

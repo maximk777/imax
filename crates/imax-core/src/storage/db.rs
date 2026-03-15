@@ -73,6 +73,80 @@ fn migrations() -> Migrations<'static> {
             CREATE INDEX idx_messages_chat ON messages(chat_id, created_at);
             CREATE INDEX idx_messages_status ON messages(status) WHERE status = 'pending';"
         ),
+        M::up(
+            "DROP TABLE IF EXISTS pending_invites;
+            DROP TABLE IF EXISTS messages;
+            DROP TABLE IF EXISTS contacts;
+            DROP TABLE IF EXISTS chats;
+            DROP TABLE IF EXISTS identity;
+
+            CREATE TABLE identity (
+                id           INTEGER PRIMARY KEY CHECK (id = 1),
+                seed_phrase  TEXT NOT NULL,
+                nickname     TEXT NOT NULL,
+                created_at   INTEGER NOT NULL
+            );
+
+            CREATE TABLE chats (
+                id            TEXT PRIMARY KEY,
+                peer_name     TEXT NOT NULL DEFAULT '',
+                last_message  TEXT NOT NULL DEFAULT '',
+                time          TEXT NOT NULL DEFAULT '',
+                avatar_color  INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE messages (
+                id        TEXT PRIMARY KEY,
+                chat_id   TEXT NOT NULL,
+                content   TEXT NOT NULL,
+                is_mine   INTEGER NOT NULL DEFAULT 0,
+                time      TEXT NOT NULL DEFAULT '',
+                status    TEXT NOT NULL DEFAULT 'sent',
+                seq       INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE INDEX idx_messages_chat_v2 ON messages(chat_id, seq);"
+        ),
+        // V3: Multi-profile support
+        M::up(
+            "DROP TABLE IF EXISTS messages;
+            DROP TABLE IF EXISTS chats;
+            DROP TABLE IF EXISTS identity;
+
+            CREATE TABLE profiles (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                seed_phrase TEXT NOT NULL,
+                nickname    TEXT NOT NULL,
+                created_at  INTEGER NOT NULL,
+                is_active   INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE chats (
+                id           TEXT NOT NULL,
+                profile_id   INTEGER NOT NULL,
+                peer_name    TEXT NOT NULL DEFAULT '',
+                last_message TEXT NOT NULL DEFAULT '',
+                time         TEXT NOT NULL DEFAULT '',
+                avatar_color INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (id, profile_id),
+                FOREIGN KEY (profile_id) REFERENCES profiles(id)
+            );
+
+            CREATE TABLE messages (
+                id         TEXT PRIMARY KEY,
+                chat_id    TEXT NOT NULL,
+                profile_id INTEGER NOT NULL,
+                content    TEXT NOT NULL,
+                is_mine    INTEGER NOT NULL DEFAULT 0,
+                time       TEXT NOT NULL DEFAULT '',
+                status     TEXT NOT NULL DEFAULT 'sent',
+                seq        INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (profile_id) REFERENCES profiles(id)
+            );
+
+            CREATE INDEX idx_messages_chat_v3 ON messages(chat_id, profile_id, seq);
+            CREATE INDEX idx_chats_profile ON chats(profile_id);"
+        ),
     ])
 }
 
@@ -85,11 +159,11 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         let count: i32 = db.conn()
             .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('identity','contacts','chats','messages','pending_invites')",
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('profiles','chats','messages')",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(count, 5);
+        assert_eq!(count, 3);
     }
 }

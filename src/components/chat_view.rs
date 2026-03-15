@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use dioxus::document::eval;
 use crate::state::{ACTIVE_CHAT_ID, MESSAGES};
 use crate::components::chat_header::ChatHeader;
 use crate::components::message_bubble::MessageBubble;
@@ -20,6 +21,16 @@ pub fn ChatView() -> Element {
     }
 
     let messages = MESSAGES.read().clone();
+    let msg_count = messages.len();
+
+    // Auto-scroll to bottom whenever message count changes
+    use_effect(move || {
+        let _ = msg_count;
+        eval(r#"
+            const el = document.querySelector('.message-list');
+            if (el) el.scrollTop = el.scrollHeight;
+        "#);
+    });
 
     rsx! {
         div { class: "chat-view",

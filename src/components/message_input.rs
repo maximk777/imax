@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
-use crate::state::{ACTIVE_CHAT_ID, Message, OUTGOING_TX, OutgoingMessage, add_message};
+use crate::state::{ACTIVE_CHAT_ID, Message, OutgoingMessage, add_message, get_outgoing_tx};
+use crate::components::test_p2p::local_time_now;
 
 #[component]
 pub fn MessageInput() -> Element {
@@ -12,13 +13,13 @@ pub fn MessageInput() -> Element {
                 id: uuid(),
                 content: text.clone(),
                 is_mine: true,
-                time: "now".into(),
+                time: local_time_now(),
                 status: "sent".into(),
             };
             add_message(chat_id, msg);
 
             // Enqueue for P2P delivery
-            if let Some(tx) = OUTGOING_TX.get() {
+            if let Some(tx) = get_outgoing_tx() {
                 let _ = tx.send(OutgoingMessage {
                     chat_id: chat_id.clone(),
                     text: text.clone(),

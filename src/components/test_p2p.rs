@@ -1,36 +1,35 @@
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use iroh::SecretKey;
+use tokio_util::sync::CancellationToken;
 use imax_core::network::node::IrohNode;
-use imax_core::network::protocol::WireMessage;
+use imax_core::network::protocol::{WireMessage, AckStatus};
 use imax_core::network::discovery::{InviteCode, InvitePayload};
 use dioxus::prelude::ReadableExt;
 use uuid::Uuid;
 use crate::state::{
     NICKNAME, SIGNING_KEY_BYTES, CONNECTION_STATUS, NODE_STARTED,
-    INVITE_CODE, OUTGOING_TX, IROH_NODE, Message, OutgoingMessage, UiUpdate,
+    INVITE_CODE, Message, OutgoingMessage, UiUpdate,
     UI_UPDATE_TX, get_peer_id, register_peer, hex,
+    get_iroh_node, IROH_NODE, OUTGOING_TX, NODE_CANCEL,
 };
 
-static MESSAGE_LOOP_STARTED: OnceLock<()> = OnceLock::new();
-
 /// Start the shared accept + outgoing message loop on the global node.
-/// Safe to call multiple times — only the first call starts the loop.
-///
-/// `sk_bytes` and `nickname` are captured from GlobalSignals before this call
-/// so the spawned tokio task never touches Dioxus runtime.
-pub fn start_message_loop(node: Arc<IrohNode>, sk_bytes: [u8; 32], nickname: String) {
-    if MESSAGE_LOOP_STARTED.set(()).is_err() {
-        return; // already started
-    }
-
+/// Each call starts a new loop (previous one should be cancelled via CancellationToken).
+pub fn start_message_loop(node: Arc<IrohNode>, sk_bytes: [u8; 32], nickname: String, cancel: CancellationToken) {
     // Set up the outgoing message channel
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<OutgoingMessage>();
-    let _ = OUTGOING_TX.set(tx);
+    *OUTGOING_TX.lock().unwrap() = Some(tx);
 
     println!("[imax] Starting message loop...");
     tokio::spawn(async move {
         loop {
             tokio::select! {
+                // ── Cancelled ──
+                _ = cancel.cancelled() => {
+                    println!("[imax] Message loop cancelled");
+                    break;
+                }
+
                 // ── Incoming connection ──
                 accept_result = node.accept_one() => {
                     match accept_result {
@@ -81,8 +80,23 @@ pub fn start_message_loop(node: Arc<IrohNode>, sk_bytes: [u8; 32], nickname: Str
                                         format!("chat-{}", hex(&id_bytes[..4]))
                                     };
 
+                                    // Send Ack::Delivered back to peer
+                                    let ack = WireMessage::Ack {
+                                        message_id: id,
+                                        status: AckStatus::Delivered,
+                                    };
+                                    if let Err(e) = node.send_to_peer(from_id, &ack).await {
+                                        println!("[imax] Failed to send Delivered ack: {e}");
+                                    }
+
                                     // Notify UI via channel
                                     if let Some(tx) = UI_UPDATE_TX.get() {
+                                        // Ensure chat exists before delivering message
+                                        let _ = tx.send(UiUpdate::PeerConnected {
+                                            chat_id: chat_id.clone(),
+                                            peer_name: "Unknown".into(),
+                                            public_key_byte: from_id.as_bytes()[0],
+                                        });
                                         let preview = content_preview(&content);
                                         let _ = tx.send(UiUpdate::ChatPreviewUpdate {
                                             chat_id: chat_id.clone(),
@@ -95,8 +109,21 @@ pub fn start_message_loop(node: Arc<IrohNode>, sk_bytes: [u8; 32], nickname: Str
                                                 content,
                                                 is_mine: false,
                                                 time: ts,
-                                                status: "received".into(),
+                                                status: "delivered".into(),
                                             },
+                                        });
+                                    }
+                                }
+                                WireMessage::Ack { message_id, status } => {
+                                    let new_status = match status {
+                                        AckStatus::Delivered => "delivered",
+                                        AckStatus::Read => "read",
+                                    };
+                                    println!("[imax] Ack received: msg={message_id} status={new_status}");
+                                    if let Some(tx) = UI_UPDATE_TX.get() {
+                                        let _ = tx.send(UiUpdate::MessageStatusUpdate {
+                                            message_id: message_id.to_string(),
+                                            status: new_status.to_string(),
                                         });
                                     }
                                 }
@@ -172,9 +199,9 @@ pub async fn run_test_p2p() -> Result<(), String> {
     let nickname = NICKNAME.read().clone();
 
     // Reuse global node if it exists, otherwise create one
-    let node = if let Some(existing) = IROH_NODE.get() {
+    let node = if let Some(existing) = get_iroh_node() {
         println!("[test] Reusing existing node");
-        existing.clone()
+        existing
     } else {
         println!("[test] Creating node...");
         let our_key = SecretKey::from_bytes(&sk_bytes);
@@ -191,7 +218,7 @@ pub async fn run_test_p2p() -> Result<(), String> {
         }
 
         let node = Arc::new(new_node);
-        let _ = IROH_NODE.set(node.clone());
+        *IROH_NODE.lock().unwrap() = Some(node.clone());
         node
     };
 
@@ -207,18 +234,54 @@ pub async fn run_test_p2p() -> Result<(), String> {
     *CONNECTION_STATUS.write() = "online".to_string();
     *NODE_STARTED.write() = true;
 
-    // Start the shared message loop (no-op if already started)
-    // Pass captured values so the spawned task never touches Dioxus runtime
-    start_message_loop(node, sk_bytes, nickname);
+    // Start the shared message loop
+    let cancel = NODE_CANCEL.lock().unwrap().clone();
+    start_message_loop(node, sk_bytes, nickname, cancel);
 
     Ok(())
 }
 
-fn format_timestamp(ts: u64) -> String {
-    let secs = ts % 86400;
-    let h = secs / 3600;
-    let m = (secs % 3600) / 60;
+/// Get the current local time as HH:MM.
+pub fn local_time_now() -> String {
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    format_timestamp_local(now_secs)
+}
+
+/// Format a UNIX timestamp as local HH:MM using platform C localtime.
+fn format_timestamp_local(ts: u64) -> String {
+    use std::sync::OnceLock;
+    static UTC_OFFSET_SECS: OnceLock<i64> = OnceLock::new();
+
+    let offset = *UTC_OFFSET_SECS.get_or_init(|| {
+        match std::process::Command::new("date").arg("+%z").output() {
+            Ok(out) => {
+                let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if s.len() >= 5 {
+                    let sign: i64 = if s.starts_with('-') { -1 } else { 1 };
+                    let hours: i64 = s[1..3].parse().unwrap_or(0);
+                    let mins: i64 = s[3..5].parse().unwrap_or(0);
+                    sign * (hours * 3600 + mins * 60)
+                } else {
+                    0
+                }
+            }
+            Err(_) => 0,
+        }
+    });
+
+    let local_ts = ts as i64 + offset;
+    let secs_in_day = ((local_ts % 86400) + 86400) % 86400;
+    let h = secs_in_day / 3600;
+    let m = (secs_in_day % 3600) / 60;
     format!("{:02}:{:02}", h, m)
+}
+
+/// Format a UNIX timestamp as local HH:MM.
+fn format_timestamp(ts: u64) -> String {
+    format_timestamp_local(ts)
 }
 
 fn content_preview(s: &str) -> String {

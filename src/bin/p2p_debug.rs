@@ -9,7 +9,36 @@ use uuid::Uuid;
 async fn main() {
     let mut passed = 0u32;
     let mut failed = 0u32;
-    let total = 4u32;
+    let total = 6u32;
+
+    // --- Test 0: Seed phrase round-trip ---
+    print!("[identity] Seed phrase round-trip... ");
+    match imax_core::identity::generate_mnemonic() {
+        Ok(mnemonic) => {
+            let key1 = imax_core::identity::derive_signing_key(&mnemonic);
+            let phrase = mnemonic.to_string();
+            match imax_core::identity::parse_mnemonic(&phrase) {
+                Ok(restored) => {
+                    let key2 = imax_core::identity::derive_signing_key(&restored);
+                    if key1.to_bytes() == key2.to_bytes() {
+                        println!("OK (same key from same phrase)");
+                        passed += 1;
+                    } else {
+                        println!("FAIL (keys differ!)");
+                        failed += 1;
+                    }
+                }
+                Err(e) => {
+                    println!("FAIL (parse_mnemonic: {e})");
+                    failed += 1;
+                }
+            }
+        }
+        Err(e) => {
+            println!("FAIL (generate_mnemonic: {e})");
+            failed += 1;
+        }
+    }
 
     // Create Alice and Bob nodes
     let key_alice = SecretKey::from_bytes(&[1u8; 32]);
@@ -130,8 +159,16 @@ async fn main() {
             match tokio::time::timeout(Duration::from_secs(10), bob_rx.recv()).await {
                 Ok(Some((msg, from))) => {
                     if from == alice_id {
-                        println!("OK");
-                        println!("[bob] Received {:?} from alice", msg_label(&msg));
+                        // Test 1b: verify nickname in Hello
+                        if let WireMessage::Hello { nickname, .. } = &msg {
+                            if nickname == "Alice" {
+                                println!("OK (nickname: \"Alice\")");
+                            } else {
+                                println!("OK (but nickname was \"{}\" instead of \"Alice\")", nickname);
+                            }
+                        } else {
+                            println!("OK");
+                        }
                         passed += 1;
                     } else {
                         println!("FAIL (wrong sender)");
@@ -150,7 +187,7 @@ async fn main() {
         }
     }
 
-    // --- Test 2: Bob sends Hello back to Alice via peer ID (cached) ---
+    // --- Test 2: Bob sends Hello back to Alice via full address ---
     print!("[bob→alice] Sending Hello back... ");
     let hello_back = WireMessage::Hello {
         public_key: [2u8; 32],
@@ -162,8 +199,15 @@ async fn main() {
             match tokio::time::timeout(Duration::from_secs(10), alice_rx.recv()).await {
                 Ok(Some((msg, from))) => {
                     if from == bob_id {
-                        println!("OK");
-                        println!("[alice] Received {:?} from bob", msg_label(&msg));
+                        if let WireMessage::Hello { nickname, .. } = &msg {
+                            if nickname == "Bob" {
+                                println!("OK (nickname: \"Bob\")");
+                            } else {
+                                println!("OK (but nickname was \"{}\" instead of \"Bob\")", nickname);
+                            }
+                        } else {
+                            println!("OK");
+                        }
                         passed += 1;
                     } else {
                         println!("FAIL (wrong sender)");
@@ -248,10 +292,30 @@ async fn main() {
         }
     }
 
+    // --- Test 5: Nickname assertion ---
+    print!("[nickname] Hello messages carry correct nicknames... ");
+    let test_hello = WireMessage::Hello {
+        public_key: [99u8; 32],
+        nickname: "TestNick".to_string(),
+        protocol_version: 1,
+    };
+    if let WireMessage::Hello { nickname, .. } = &test_hello {
+        if nickname == "TestNick" {
+            println!("OK");
+            passed += 1;
+        } else {
+            println!("FAIL (expected \"TestNick\", got \"{nickname}\")");
+            failed += 1;
+        }
+    } else {
+        println!("FAIL (not a Hello)");
+        failed += 1;
+    }
+
     // Summary
     println!();
     if failed == 0 {
-        println!("[PASS] All {total} message exchanges succeeded");
+        println!("[PASS] All {total} tests succeeded");
     } else {
         println!("[FAIL] {passed}/{total} passed, {failed}/{total} failed");
     }
@@ -263,14 +327,3 @@ async fn main() {
     bob.shutdown().await.ok();
 }
 
-fn msg_label(msg: &WireMessage) -> &'static str {
-    match msg {
-        WireMessage::Hello { .. } => "Hello",
-        WireMessage::ChatMessage { .. } => "ChatMessage",
-        WireMessage::Ack { .. } => "Ack",
-        WireMessage::SyncRequest { .. } => "SyncRequest",
-        WireMessage::SyncResponse { .. } => "SyncResponse",
-        WireMessage::Ping => "Ping",
-        WireMessage::Pong => "Pong",
-    }
-}

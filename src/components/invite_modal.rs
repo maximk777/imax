@@ -5,9 +5,10 @@ use imax_core::network::discovery::InviteCode;
 use imax_core::network::protocol::WireMessage;
 use crate::state::{
     SHOW_INVITE_MODAL, INVITE_CODE, NICKNAME, SIGNING_KEY_BYTES,
-    CONNECTION_STATUS, NODE_STARTED, CHATS, IROH_NODE, ChatPreview,
-    register_peer, hex,
+    CONNECTION_STATUS, NODE_STARTED, CHATS, ChatPreview,
+    register_peer, hex, db_upsert_chat, get_iroh_node,
 };
+use crate::components::test_p2p::local_time_now;
 
 #[component]
 pub fn InviteModal() -> Element {
@@ -40,20 +41,17 @@ pub fn InviteModal() -> Element {
                     p { class: "modal-label", "Your invite code" }
 
                     if node_ready {
-                        // Node is online — show real invite code in a selectable input
                         input {
                             class: "modal-code-input",
                             r#type: "text",
                             readonly: true,
                             value: "{invite_code}",
                             onclick: move |_| {
-                                // Select all text on click for easy Cmd+C
                                 eval(r#"document.querySelector('.modal-code-input').select()"#);
                             },
                         }
                         p { class: "modal-hint", "Click to select, then Cmd+C to copy" }
                     } else {
-                        // Node still connecting
                         div { class: "modal-connecting",
                             p { "Connecting to P2P network..." }
                             p { class: "modal-connecting-hint", "This usually takes 2-5 seconds" }
@@ -96,9 +94,8 @@ pub fn InviteModal() -> Element {
                             spawn(async move {
                                 match InviteCode::decode(&code) {
                                     Ok(payload) => {
-                                        // Use the global node — no temp node needed
-                                        let node = match IROH_NODE.get() {
-                                            Some(n) => n.clone(),
+                                        let node = match get_iroh_node() {
+                                            Some(n) => n,
                                             None => {
                                                 *connect_status.write() = "Node not ready yet".into();
                                                 *connecting.write() = false;
@@ -142,11 +139,11 @@ pub fn InviteModal() -> Element {
                                                     id: chat_id.clone(),
                                                     peer_name,
                                                     last_message: "Connected!".into(),
-                                                    time: "now".into(),
+                                                    time: local_time_now(),
                                                     avatar_color: (payload.public_key[0] as usize) % 4,
                                                 };
-                                                CHATS.write().push(chat);
-                                                // Register just the peer ID — iroh caches transport addrs after connect
+                                                CHATS.write().push(chat.clone());
+                                                db_upsert_chat(&chat);
                                                 register_peer(chat_id, peer_id);
                                                 *CONNECTION_STATUS.write() = "connected".into();
                                                 *SHOW_INVITE_MODAL.write() = false;

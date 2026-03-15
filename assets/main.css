@@ -834,6 +834,81 @@ body {
     color: #6d7f8e;
 }
 
+/* ═══ Profile list ═══ */
+.profile-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.profile-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #0e1621;
+}
+.profile-item.active {
+    background: #1e3a5f;
+    border: 1px solid #2b5278;
+}
+.profile-item-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #6ab3f3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    color: white;
+    flex-shrink: 0;
+    text-transform: uppercase;
+}
+.profile-item-name {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 500;
+    color: #f5f5f5;
+}
+.profile-active-badge {
+    color: #4dcd68;
+    font-size: 10px;
+    margin-right: 4px;
+}
+.profile-switch-btn {
+    padding: 4px 12px;
+    background: #2b5278;
+    border: none;
+    border-radius: 6px;
+    color: #6ab3f3;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.profile-switch-btn:hover {
+    background: #3a6a9a;
+    color: white;
+}
+.profile-add-btn {
+    width: 100%;
+    padding: 8px;
+    margin-top: 4px;
+    background: transparent;
+    border: 1px dashed #2b3a4a;
+    border-radius: 8px;
+    color: #6ab3f3;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: center;
+}
+.profile-add-btn:hover {
+    background: #0e1621;
+    border-color: #6ab3f3;
+}
+
 /* ═══ Modal connecting state ═══ */
 .modal-connecting {
     background: #0e1621;
@@ -902,4 +977,28 @@ body {
     font-size: 11px;
     color: #6ab3f3;
     text-align: center;
+}
+
+/* ═══ Responsive ═══ */
+@media (max-width: 600px) {
+    .sidebar {
+        width: 100%;
+        min-width: unset;
+    }
+    .chat-view {
+        display: none;
+    }
+    .app-container.chat-active .sidebar {
+        display: none;
+    }
+    .app-container.chat-active .chat-view {
+        display: flex;
+    }
+    .onboarding-card {
+        width: 90%;
+        padding: 32px 24px;
+    }
+    .modal {
+        width: 90%;
+    }
 }

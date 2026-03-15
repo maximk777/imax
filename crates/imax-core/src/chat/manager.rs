@@ -16,12 +16,13 @@ pub struct ChatManager {
     my_pubkey: [u8; 32],
     my_x25519_secret: X25519Secret,
     event_tx: broadcast::Sender<ChatEvent>,
+    profile_id: i64,
 }
 
 impl ChatManager {
-    pub fn new(db: Database, my_pubkey: [u8; 32], my_x25519_secret: X25519Secret) -> Self {
+    pub fn new(db: Database, my_pubkey: [u8; 32], my_x25519_secret: X25519Secret, profile_id: i64) -> Self {
         let (event_tx, _) = broadcast::channel(256);
-        Self { db, my_pubkey, my_x25519_secret, event_tx }
+        Self { db, my_pubkey, my_x25519_secret, event_tx, profile_id }
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<ChatEvent> {
@@ -29,60 +30,44 @@ impl ChatManager {
     }
 
     pub fn get_chats(&self) -> Result<Vec<ChatPreview>> {
-        let raw_chats = models::get_chats(&self.db)?;
-        let mut previews = Vec::new();
-        for (id, peer_key_bytes, _created_at, last_msg_id, unread) in raw_chats {
-            let pk: [u8; 32] = peer_key_bytes.try_into()
-                .map_err(|_| crate::Error::Chat("invalid pubkey length".into()))?;
-            let contact = models::get_contact(&self.db, &pk)?;
-            let nickname = contact.map(|c| c.1).unwrap_or_else(|| "Unknown".to_string());
-
-            let (last_text, last_time) = if last_msg_id.is_some() {
-                let latest = self.db.conn().query_row(
-                    "SELECT content, created_at FROM messages WHERE chat_id = ?1 ORDER BY seq DESC LIMIT 1",
-                    rusqlite::params![id],
-                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
-                ).ok();
-                match latest {
-                    Some((text, time)) => (Some(text), Some(time)),
-                    None => (None, None),
-                }
-            } else {
-                (None, None)
-            };
-
-            previews.push(ChatPreview {
-                id, peer_key: pk, peer_nickname: nickname,
-                last_message_text: last_text, last_message_time: last_time,
-                unread_count: unread, is_online: false,
-            });
-        }
-        Ok(previews)
-    }
-
-    pub fn get_messages(&self, chat_id: &str, limit: usize, before_seq: Option<i64>) -> Result<Vec<Message>> {
-        let raw = models::get_messages(&self.db, chat_id, limit, before_seq)?;
-        Ok(raw.into_iter().map(|(id, sender, content, seq, status, created_at)| {
-            let sk: [u8; 32] = sender.try_into().unwrap_or([0u8; 32]);
-            Message {
-                id, chat_id: chat_id.to_string(), sender_key: sk, content, seq,
-                status: MessageStatus::from_str(&status), created_at,
-                is_mine: sk == self.my_pubkey,
-            }
+        let rows = models::get_all_chats(&self.db, self.profile_id)?;
+        Ok(rows.into_iter().map(|r| ChatPreview {
+            id: r.id,
+            peer_key: [0u8; 32],
+            peer_nickname: r.peer_name,
+            last_message_text: if r.last_message.is_empty() { None } else { Some(r.last_message) },
+            last_message_time: None,
+            unread_count: 0,
+            is_online: false,
         }).collect())
     }
 
-    pub fn add_contact_and_chat(&self, peer_key: &[u8; 32], nickname: &str) -> Result<ChatId> {
-        models::insert_contact(&self.db, peer_key, nickname, None)?;
-        models::create_chat(&self.db, peer_key)
+    pub fn get_messages(&self, chat_id: &str, _limit: usize, _before_seq: Option<i64>) -> Result<Vec<Message>> {
+        let rows = models::get_messages_for_chat(&self.db, chat_id, self.profile_id)?;
+        Ok(rows.into_iter().map(|r| Message {
+            id: r.id,
+            chat_id: r.chat_id,
+            sender_key: if r.is_mine { self.my_pubkey } else { [0u8; 32] },
+            content: r.content,
+            seq: r.seq,
+            status: MessageStatus::from_str(&r.status),
+            created_at: 0,
+            is_mine: r.is_mine,
+        }).collect())
+    }
+
+    pub fn add_contact_and_chat(&self, _peer_key: &[u8; 32], nickname: &str) -> Result<ChatId> {
+        let id = Uuid::new_v4().to_string();
+        models::upsert_chat(&self.db, &id, self.profile_id, nickname, "", "", 0)?;
+        Ok(id)
     }
 
     pub fn store_outgoing_message(&self, chat_id: &str, text: &str) -> Result<Message> {
-        let seq = models::get_next_seq(&self.db, chat_id)?;
-        let msg_id = models::insert_message(&self.db, chat_id, &self.my_pubkey, text, seq, "pending")?;
+        let id = Uuid::new_v4().to_string();
+        models::insert_message(&self.db, &id, chat_id, self.profile_id, text, true, "", "pending")?;
         let msg = Message {
-            id: msg_id, chat_id: chat_id.to_string(), sender_key: self.my_pubkey,
-            content: text.to_string(), seq, status: MessageStatus::Pending,
+            id: id.clone(), chat_id: chat_id.to_string(), sender_key: self.my_pubkey,
+            content: text.to_string(), seq: 0, status: MessageStatus::Pending,
             created_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64,
             is_mine: true,
         };
@@ -91,11 +76,11 @@ impl ChatManager {
     }
 
     pub fn store_incoming_message(&self, chat_id: &str, sender_key: &[u8; 32], text: &str) -> Result<Message> {
-        let seq = models::get_next_seq(&self.db, chat_id)?;
-        let msg_id = models::insert_message(&self.db, chat_id, sender_key, text, seq, "delivered")?;
+        let id = Uuid::new_v4().to_string();
+        models::insert_message(&self.db, &id, chat_id, self.profile_id, text, false, "", "delivered")?;
         let msg = Message {
-            id: msg_id, chat_id: chat_id.to_string(), sender_key: *sender_key,
-            content: text.to_string(), seq, status: MessageStatus::Delivered,
+            id: id.clone(), chat_id: chat_id.to_string(), sender_key: *sender_key,
+            content: text.to_string(), seq: 0, status: MessageStatus::Delivered,
             created_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64,
             is_mine: false,
         };
@@ -104,7 +89,10 @@ impl ChatManager {
     }
 
     pub fn update_status(&self, message_id: &str, status: MessageStatus) -> Result<()> {
-        models::update_message_status(&self.db, message_id, status.as_str())?;
+        self.db.conn().execute(
+            "UPDATE messages SET status = ?1 WHERE id = ?2",
+            rusqlite::params![status.as_str(), message_id],
+        ).map_err(|e| crate::Error::Storage(e.to_string()))?;
         let _ = self.event_tx.send(ChatEvent::MessageStatusChanged { message_id: message_id.to_string(), status });
         Ok(())
     }
@@ -116,19 +104,16 @@ impl ChatManager {
         let endpoint_addr = node.endpoint().addr();
         let node_id_bytes = node.node_id().as_bytes().clone();
 
-        // Collect direct addresses
         let addrs: Vec<std::net::SocketAddr> = endpoint_addr
             .ip_addrs()
             .cloned()
             .collect();
 
-        // Get relay URL if available
         let relay_url = endpoint_addr
             .relay_urls()
             .next()
             .map(|url| url.to_string());
 
-        // Expire in 24 hours
         let expires = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -147,38 +132,23 @@ impl ChatManager {
     }
 
     /// Send an encrypted message to a peer via iroh P2P.
-    ///
-    /// - Stores the message locally as "pending"
-    /// - Looks up the peer's public key from contacts using `chat_id`
-    /// - Derives a shared secret via X25519 DH
-    /// - Encrypts the plaintext and creates a `WireMessage::ChatMessage`
-    /// - Sends it over iroh to `peer_node_id`
-    /// - Updates status to "sent" on success
     pub async fn send_message(
         &self,
         node: &IrohNode,
         chat_id: &str,
         text: &str,
         peer_node_id: iroh::EndpointId,
+        peer_key: &[u8; 32],
     ) -> Result<Message> {
-        // 1. Store message locally (as pending)
         let msg = self.store_outgoing_message(chat_id, text)?;
 
-        // 2. Get peer's public key from contacts by finding which chat this is
-        //    We look up the chat to get peer_key, then fetch the contact
-        let peer_key = self.get_peer_key_for_chat(chat_id)?;
-
-        // 3. Derive shared secret: our X25519 secret key + peer X25519 public key
-        let peer_x25519_pub = keypair::x25519_public_from_bytes(&peer_key)?;
+        let peer_x25519_pub = keypair::x25519_public_from_bytes(peer_key)?;
         let shared = self.my_x25519_secret.diffie_hellman(&peer_x25519_pub);
 
-        // 4. Derive symmetric key
-        let sym_key = e2e::derive_symmetric_key(shared.as_bytes(), &self.my_pubkey, &peer_key);
+        let sym_key = e2e::derive_symmetric_key(shared.as_bytes(), &self.my_pubkey, peer_key);
 
-        // 5. Encrypt the text (use message id as AAD)
         let (ciphertext, nonce) = e2e::encrypt(&sym_key, text.as_bytes(), msg.id.as_bytes())?;
 
-        // 6. Create WireMessage::ChatMessage
         let message_uuid = Uuid::parse_str(&msg.id)
             .map_err(|e| crate::Error::Chat(format!("invalid uuid: {e}")))?;
         let wire_msg = WireMessage::ChatMessage {
@@ -188,28 +158,11 @@ impl ChatManager {
             timestamp: msg.created_at as u64,
         };
 
-        // 7. Send via node
         node.send_to_peer(peer_node_id, &wire_msg).await?;
 
-        // 8. Update message status to "sent"
         self.update_status(&msg.id, MessageStatus::Sent)?;
 
         Ok(msg)
-    }
-
-    /// Get the peer's Ed25519 public key for a given chat_id.
-    fn get_peer_key_for_chat(&self, chat_id: &str) -> Result<[u8; 32]> {
-        let peer_key_bytes: Vec<u8> = self.db.conn()
-            .query_row(
-                "SELECT peer_key FROM chats WHERE id = ?1",
-                rusqlite::params![chat_id],
-                |row| row.get(0),
-            )
-            .map_err(|e| crate::Error::Chat(format!("chat not found: {e}")))?;
-
-        peer_key_bytes
-            .try_into()
-            .map_err(|_| crate::Error::Chat("invalid peer key length".into()))
     }
 }
 
@@ -219,15 +172,15 @@ mod tests {
     use x25519_dalek::StaticSecret as X25519Secret;
 
     fn make_x25519_secret(seed: u8) -> X25519Secret {
-        // Build from fixed bytes for determinism
         let bytes = [seed; 32];
         X25519Secret::from(bytes)
     }
 
     fn setup() -> ChatManager {
         let db = Database::open_in_memory().unwrap();
+        let profile_id = models::create_profile(&db, "test-seed", "Test").unwrap();
         let secret = make_x25519_secret(0);
-        ChatManager::new(db, [0u8; 32], secret)
+        ChatManager::new(db, [0u8; 32], secret, profile_id)
     }
 
     #[test]

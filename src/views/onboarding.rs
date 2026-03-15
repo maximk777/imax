@@ -1,19 +1,15 @@
-use std::sync::Arc;
 use dioxus::prelude::*;
-use iroh::SecretKey;
-use imax_core::network::node::IrohNode;
-use imax_core::network::discovery::{InviteCode, InvitePayload};
-use crate::state::{
-    IS_ONBOARDED, NICKNAME, SEED_PHRASE, INVITE_CODE,
-    SIGNING_KEY_BYTES, NODE_STARTED, CONNECTION_STATUS, IROH_NODE,
-};
-use crate::components::test_p2p::start_message_loop;
+use imax_core::storage::models;
+use crate::state::{start_node, db, ACTIVE_PROFILE_ID, IS_ONBOARDED, ADDING_PROFILE};
 
 #[component]
 pub fn Onboarding() -> Element {
     let mut nick_input = use_signal(String::new);
     let mut error_msg = use_signal(String::new);
     let mut loading = use_signal(|| false);
+    let mut show_restore = use_signal(|| false);
+    let mut seed_input = use_signal(String::new);
+    let is_adding = *ADDING_PROFILE.read();
 
     let on_start = move |_| {
         let name = nick_input.read().trim().to_string();
@@ -28,80 +24,23 @@ pub fn Onboarding() -> Element {
         match imax_core::identity::generate_mnemonic() {
             Ok(mnemonic) => {
                 let signing_key = imax_core::identity::derive_signing_key(&mnemonic);
-                let pubkey = signing_key.verifying_key();
-                let pubkey_bytes = pubkey.to_bytes();
-
-                *SEED_PHRASE.write() = mnemonic.to_string();
+                let pubkey_bytes = signing_key.verifying_key().to_bytes();
                 let sk_bytes = signing_key.to_bytes();
-                *SIGNING_KEY_BYTES.write() = sk_bytes;
-                *NICKNAME.write() = name.clone();
-                *CONNECTION_STATUS.write() = "connecting".to_string();
-                *IS_ONBOARDED.write() = true;
+                let seed_phrase = mnemonic.to_string();
 
-                // Spawn background iroh node
-                spawn(async move {
-                    println!("[imax] Starting iroh node...");
-                    let iroh_key = SecretKey::from_bytes(&sk_bytes);
-                    match IrohNode::new(iroh_key).await {
-                        Ok(new_node) => {
-                            println!("[imax] Node created, waiting for relay...");
+                // Create profile in DB
+                let profile_id = {
+                    let db = db();
+                    let pid = models::create_profile(&db, &seed_phrase, &name).unwrap();
+                    models::set_active_profile(&db, pid).unwrap();
+                    let total = models::get_all_profiles(&db).unwrap_or_default().len();
+                    println!("[imax] Created profile id={pid} nick={name}, total profiles: {total}");
+                    pid
+                };
+                *ACTIVE_PROFILE_ID.write() = profile_id;
+                *ADDING_PROFILE.write() = false;
 
-                            let online_result = tokio::time::timeout(
-                                std::time::Duration::from_secs(15),
-                                new_node.endpoint().online()
-                            ).await;
-
-                            match online_result {
-                                Ok(_) => println!("[imax] Node connected to relay!"),
-                                Err(_) => println!("[imax] Relay timeout (15s), proceeding anyway"),
-                            }
-
-                            // Generate real invite code
-                            let addr = new_node.endpoint().addr();
-                            let node_id = new_node.node_id();
-                            let addrs: Vec<std::net::SocketAddr> =
-                                addr.ip_addrs().cloned().collect();
-                            let relay_url = addr.relay_urls().next().map(|u| u.to_string());
-
-                            println!("[imax] Node ID: {:?}", node_id);
-                            println!("[imax] Direct addrs: {:?}", addrs);
-                            println!("[imax] Relay URL: {:?}", relay_url);
-
-                            let expires = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs() + 86400;
-
-                            let payload = InvitePayload {
-                                public_key: pubkey_bytes,
-                                node_id: *node_id.as_bytes(),
-                                addrs,
-                                relay_url,
-                                expires,
-                            };
-
-                            match InviteCode::encode(&payload) {
-                                Ok(code) => {
-                                    println!("[imax] Invite code generated ({} chars)", code.0.len());
-                                    *INVITE_CODE.write() = code.0;
-                                }
-                                Err(e) => println!("[imax] Invite encode error: {e}"),
-                            }
-
-                            *CONNECTION_STATUS.write() = "online".to_string();
-                            *NODE_STARTED.write() = true;
-
-                            // Store the node globally and start the shared message loop
-                            let node = Arc::new(new_node);
-                            let _ = IROH_NODE.set(node.clone());
-                            start_message_loop(node, sk_bytes, name.clone());
-                        }
-                        Err(e) => {
-                            println!("[imax] Failed to start node: {e}");
-                            *CONNECTION_STATUS.write() = format!("error: {e}");
-                        }
-                    }
-                });
+                start_node(sk_bytes, pubkey_bytes, seed_phrase, name);
             }
             Err(e) => {
                 *error_msg.write() = format!("Identity error: {e}");
@@ -109,6 +48,123 @@ pub fn Onboarding() -> Element {
             }
         }
     };
+
+    let on_restore = move |_| {
+        let name = nick_input.read().trim().to_string();
+        if name.is_empty() {
+            *error_msg.write() = "Please enter a nickname.".into();
+            return;
+        }
+        let phrase = seed_input.read().trim().to_string();
+        if phrase.is_empty() {
+            *error_msg.write() = "Please paste your seed phrase.".into();
+            return;
+        }
+
+        *loading.write() = true;
+        *error_msg.write() = String::new();
+
+        match imax_core::identity::parse_mnemonic(&phrase) {
+            Ok(mnemonic) => {
+                let signing_key = imax_core::identity::derive_signing_key(&mnemonic);
+                let pubkey_bytes = signing_key.verifying_key().to_bytes();
+                let sk_bytes = signing_key.to_bytes();
+                let seed_phrase = mnemonic.to_string();
+
+                // Create profile in DB
+                let profile_id = {
+                    let db = db();
+                    let pid = models::create_profile(&db, &seed_phrase, &name).unwrap();
+                    models::set_active_profile(&db, pid).unwrap();
+                    let total = models::get_all_profiles(&db).unwrap_or_default().len();
+                    println!("[imax] Restored profile id={pid} nick={name}, total profiles: {total}");
+                    pid
+                };
+                *ACTIVE_PROFILE_ID.write() = profile_id;
+                *ADDING_PROFILE.write() = false;
+
+                start_node(sk_bytes, pubkey_bytes, seed_phrase, name);
+            }
+            Err(e) => {
+                *error_msg.write() = format!("Invalid seed phrase: {e}");
+                *loading.write() = false;
+            }
+        }
+    };
+
+    let on_cancel = move |_| {
+        *IS_ONBOARDED.write() = true;
+        *ADDING_PROFILE.write() = false;
+    };
+
+    if *show_restore.read() {
+        return rsx! {
+            div { class: "onboarding-screen",
+                div { class: "onboarding-card",
+                    div { class: "onboarding-logo", "iMax" }
+                    p { class: "onboarding-tagline", "Restore from seed phrase" }
+
+                    div { class: "onboarding-form",
+                        div {
+                            p { class: "onboarding-label", "Your 24-word seed phrase" }
+                            textarea {
+                                class: "onboarding-input",
+                                rows: "4",
+                                placeholder: "word1 word2 word3 ... word24",
+                                value: "{seed_input}",
+                                oninput: move |evt| {
+                                    *seed_input.write() = evt.value();
+                                    *error_msg.write() = String::new();
+                                },
+                            }
+                        }
+
+                        div {
+                            p { class: "onboarding-label", "Your nickname" }
+                            input {
+                                class: "onboarding-input",
+                                r#type: "text",
+                                placeholder: "e.g. Alice",
+                                value: "{nick_input}",
+                                oninput: move |evt| {
+                                    *nick_input.write() = evt.value();
+                                    *error_msg.write() = String::new();
+                                },
+                            }
+                        }
+
+                        if !error_msg.read().is_empty() {
+                            p { class: "onboarding-error", "{error_msg}" }
+                        }
+
+                        button {
+                            class: "onboarding-btn-primary",
+                            disabled: *loading.read(),
+                            onclick: on_restore,
+                            if *loading.read() { "Restoring..." } else { "Restore" }
+                        }
+                    }
+
+                    button {
+                        class: "onboarding-link",
+                        onclick: move |_| {
+                            *show_restore.write() = false;
+                            *error_msg.write() = String::new();
+                        },
+                        "Back"
+                    }
+
+                    if is_adding {
+                        button {
+                            class: "onboarding-link",
+                            onclick: on_cancel,
+                            "Cancel"
+                        }
+                    }
+                }
+            }
+        };
+    }
 
     rsx! {
         div { class: "onboarding-screen",
@@ -145,8 +201,19 @@ pub fn Onboarding() -> Element {
 
                 button {
                     class: "onboarding-link",
-                    onclick: |_| {},
+                    onclick: move |_| {
+                        *show_restore.write() = true;
+                        *error_msg.write() = String::new();
+                    },
                     "I have a seed phrase"
+                }
+
+                if is_adding {
+                    button {
+                        class: "onboarding-link",
+                        onclick: on_cancel,
+                        "Cancel"
+                    }
                 }
             }
         }
