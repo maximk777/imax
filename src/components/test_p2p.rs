@@ -78,6 +78,7 @@ pub async fn run_test_p2p() -> Result<(), String> {
             };
             CHATS.write().push(chat);
         }
+        *CONNECTION_STATUS.write() = "online".to_string();
         println!("[test] P2P test successful! Bob received Hello.");
     } else {
         return Err("Bob did not receive the Hello".into());
