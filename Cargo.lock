@@ -2788,6 +2788,7 @@ dependencies = [
  "bs58",
  "dioxus",
  "dirs",
+ "ed25519-dalek 2.2.0",
  "imax-core",
  "iroh",
  "tokio",

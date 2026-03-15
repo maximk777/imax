@@ -20,3 +20,4 @@ iroh = "0.96"
 uuid = { version = "1", features = ["v4"] }
 dirs = "6"
 tokio-util = { version = "0.7", features = ["rt"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }

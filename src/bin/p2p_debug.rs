@@ -2,7 +2,10 @@ use imax_core::network::node::IrohNode;
 use imax_core::network::protocol::WireMessage;
 use imax_core::storage::Database;
 use imax_core::storage::models;
+use imax_core::identity::keypair;
+use imax_core::crypto::e2e;
 use iroh::SecretKey;
+use ed25519_dalek::SigningKey;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -11,7 +14,7 @@ use uuid::Uuid;
 async fn main() {
     let mut passed = 0u32;
     let mut failed = 0u32;
-    let total = 9u32;
+    let total = 10u32;
 
     // --- Test 0: Seed phrase round-trip ---
     print!("[identity] Seed phrase round-trip... ");
@@ -402,7 +405,88 @@ async fn main() {
         }
     }
 
-    // --- Test 8: Node restart with different key ---
+    // --- Test 8: E2E encryption roundtrip via P2P ---
+    print!("[e2e] Encryption roundtrip via P2P... ");
+    {
+        // Alice and Bob derive signing keys from fixed bytes
+        let alice_sk = SigningKey::from_bytes(&[1u8; 32]);
+        let bob_sk = SigningKey::from_bytes(&[2u8; 32]);
+        let alice_pubkey = alice_sk.verifying_key().to_bytes();
+        let bob_pubkey = bob_sk.verifying_key().to_bytes();
+
+        // Derive symmetric keys via DH (both sides should get the same key)
+        let alice_x25519 = keypair::to_x25519_secret(&alice_sk);
+        let bob_x25519 = keypair::to_x25519_secret(&bob_sk);
+        let bob_x25519_pub = keypair::x25519_public_from_bytes(&bob_pubkey).unwrap();
+        let alice_x25519_pub = keypair::x25519_public_from_bytes(&alice_pubkey).unwrap();
+
+        let shared_alice = alice_x25519.diffie_hellman(&bob_x25519_pub);
+        let shared_bob = bob_x25519.diffie_hellman(&alice_x25519_pub);
+
+        let sym_alice = e2e::derive_symmetric_key(shared_alice.as_bytes(), &alice_pubkey, &bob_pubkey);
+        let sym_bob = e2e::derive_symmetric_key(shared_bob.as_bytes(), &bob_pubkey, &alice_pubkey);
+
+        // Encrypt a message as Alice
+        let msg_id = Uuid::new_v4();
+        let plaintext = b"hello encrypted world";
+        match e2e::encrypt(&sym_alice, plaintext, msg_id.as_bytes()) {
+            Ok((ciphertext, nonce)) => {
+                // Alice sends encrypted ChatMessage to Bob
+                let wire_msg = WireMessage::ChatMessage {
+                    id: msg_id,
+                    ciphertext: ciphertext.clone(),
+                    nonce,
+                    timestamp: 9000,
+                };
+                match alice.send_to_peer(bob_id, &wire_msg).await {
+                    Ok(()) => {
+                        match tokio::time::timeout(Duration::from_secs(10), bob_rx.recv()).await {
+                            Ok(Some((received_msg, from))) => {
+                                if from != alice_id {
+                                    println!("FAIL (wrong sender)");
+                                    failed += 1;
+                                } else if let WireMessage::ChatMessage { id: rx_id, ciphertext: rx_ct, nonce: rx_nonce, .. } = received_msg {
+                                    // Bob decrypts
+                                    match e2e::decrypt(&sym_bob, &rx_ct, &rx_nonce, rx_id.as_bytes()) {
+                                        Ok(decrypted) => {
+                                            if decrypted == plaintext {
+                                                println!("OK (encrypt→send→recv→decrypt matches)");
+                                                passed += 1;
+                                            } else {
+                                                println!("FAIL (decrypted text doesn't match)");
+                                                failed += 1;
+                                            }
+                                        }
+                                        Err(e) => {
+                                            println!("FAIL (decrypt error: {e})");
+                                            failed += 1;
+                                        }
+                                    }
+                                } else {
+                                    println!("FAIL (unexpected message type)");
+                                    failed += 1;
+                                }
+                            }
+                            _ => {
+                                println!("FAIL (timeout)");
+                                failed += 1;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("FAIL (send error: {e})");
+                        failed += 1;
+                    }
+                }
+            }
+            Err(e) => {
+                println!("FAIL (encrypt error: {e})");
+                failed += 1;
+            }
+        }
+    }
+
+    // --- Test 9: Node restart with different key ---
     print!("[restart] Node restart with new key... ");
     {
         // Create a node, shut it down, create another with different key

@@ -4,9 +4,9 @@ use iroh::{EndpointId, EndpointAddr, TransportAddr, RelayUrl};
 use imax_core::network::discovery::InviteCode;
 use imax_core::network::protocol::WireMessage;
 use crate::state::{
-    SHOW_INVITE_MODAL, INVITE_CODE, NICKNAME, SIGNING_KEY_BYTES,
+    SHOW_INVITE_MODAL, INVITE_CODE, NICKNAME, MY_PUBKEY_BYTES,
     CONNECTION_STATUS, NODE_STARTED, CHATS, ChatPreview,
-    register_peer, hex, db_upsert_chat, get_iroh_node,
+    register_peer, register_peer_pubkey, hex, db_upsert_chat, get_iroh_node,
 };
 use crate::components::test_p2p::local_time_now;
 
@@ -123,10 +123,10 @@ pub fn InviteModal() -> Element {
 
                                         let peer_addr = EndpointAddr::from_parts(peer_id, transport_addrs);
 
-                                        let sk_bytes = *SIGNING_KEY_BYTES.read();
+                                        let pubkey_bytes = *MY_PUBKEY_BYTES.read();
                                         let nickname = NICKNAME.read().clone();
                                         let hello = WireMessage::Hello {
-                                            public_key: sk_bytes,
+                                            public_key: pubkey_bytes,
                                             nickname: nickname.clone(),
                                             protocol_version: 1,
                                         };
@@ -144,7 +144,8 @@ pub fn InviteModal() -> Element {
                                                 };
                                                 CHATS.write().push(chat.clone());
                                                 db_upsert_chat(&chat);
-                                                register_peer(chat_id, peer_id);
+                                                register_peer(chat_id.clone(), peer_id);
+                                                register_peer_pubkey(&chat_id, payload.public_key);
                                                 *CONNECTION_STATUS.write() = "connected".into();
                                                 *SHOW_INVITE_MODAL.write() = false;
                                             }

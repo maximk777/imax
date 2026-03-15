@@ -105,6 +105,8 @@ pub static ADDING_PROFILE: GlobalSignal<bool> = Signal::global(|| false);
 
 /// Raw Ed25519 signing key bytes — used to create iroh SecretKey and ChatManager.
 pub static SIGNING_KEY_BYTES: GlobalSignal<[u8; 32]> = Signal::global(|| [0u8; 32]);
+/// Our Ed25519 verifying (public) key bytes — sent in Hello messages.
+pub static MY_PUBKEY_BYTES: GlobalSignal<[u8; 32]> = Signal::global(|| [0u8; 32]);
 /// Whether the iroh node has started and is online.
 pub static NODE_STARTED: GlobalSignal<bool> = Signal::global(|| false);
 /// Human-readable connection status: "offline", "connecting", "online", or "error: …"
@@ -116,6 +118,11 @@ pub static IROH_NODE: LazyLock<Mutex<Option<Arc<IrohNode>>>> = LazyLock::new(|| 
 pub static OUTGOING_TX: LazyLock<Mutex<Option<mpsc::UnboundedSender<OutgoingMessage>>>> = LazyLock::new(|| Mutex::new(None));
 pub static PEER_IDS: LazyLock<Mutex<HashMap<String, EndpointId>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 pub static NODE_CANCEL: LazyLock<Mutex<CancellationToken>> = LazyLock::new(|| Mutex::new(CancellationToken::new()));
+
+/// Peer Ed25519 public keys, keyed by chat_id.
+pub static PEER_PUBKEYS: LazyLock<Mutex<HashMap<String, [u8; 32]>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Cached symmetric keys derived via DH, keyed by chat_id.
+pub static SYM_KEYS: LazyLock<Mutex<HashMap<String, [u8; 32]>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Get a clone of the current iroh node (if running).
 pub fn get_iroh_node() -> Option<Arc<IrohNode>> {
@@ -135,6 +142,32 @@ pub fn register_peer(chat_id: String, peer_id: EndpointId) {
 /// Look up the EndpointId for a given chat_id.
 pub fn get_peer_id(chat_id: &str) -> Option<EndpointId> {
     PEER_IDS.lock().unwrap().get(chat_id).cloned()
+}
+
+/// Store a peer's Ed25519 public key for a given chat_id.
+pub fn register_peer_pubkey(chat_id: &str, pubkey: [u8; 32]) {
+    PEER_PUBKEYS.lock().unwrap().insert(chat_id.to_string(), pubkey);
+}
+
+/// Look up a peer's Ed25519 public key for a given chat_id.
+pub fn get_peer_pubkey(chat_id: &str) -> Option<[u8; 32]> {
+    PEER_PUBKEYS.lock().unwrap().get(chat_id).copied()
+}
+
+/// Get or derive the symmetric key for a chat via X25519 DH + HKDF.
+pub fn get_or_derive_sym_key(chat_id: &str, sk_bytes: &[u8; 32], peer_pubkey: &[u8; 32]) -> Option<[u8; 32]> {
+    let mut keys = SYM_KEYS.lock().unwrap();
+    if let Some(key) = keys.get(chat_id) {
+        return Some(*key);
+    }
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(sk_bytes);
+    let my_pubkey = signing_key.verifying_key().to_bytes();
+    let x25519_secret = imax_core::identity::keypair::to_x25519_secret(&signing_key);
+    let peer_x25519 = imax_core::identity::keypair::x25519_public_from_bytes(peer_pubkey).ok()?;
+    let shared = x25519_secret.diffie_hellman(&peer_x25519);
+    let sym_key = imax_core::crypto::e2e::derive_symmetric_key(shared.as_bytes(), &my_pubkey, peer_pubkey);
+    keys.insert(chat_id.to_string(), sym_key);
+    Some(sym_key)
 }
 
 /// Hex-encode a byte slice (e.g. `&[0xab, 0xcd]` → `"abcd"`).
@@ -161,8 +194,10 @@ pub fn shutdown_node() {
             node.shutdown().await.ok();
         });
     }
-    // 4. Clear peers
+    // 4. Clear peers and crypto state
     PEER_IDS.lock().unwrap().clear();
+    PEER_PUBKEYS.lock().unwrap().clear();
+    SYM_KEYS.lock().unwrap().clear();
     // 5. Reset signals
     *NODE_STARTED.write() = false;
     *CONNECTION_STATUS.write() = "offline".into();
@@ -297,6 +332,7 @@ pub fn start_node(sk_bytes: [u8; 32], pubkey_bytes: [u8; 32], seed_phrase: Strin
 
     *SEED_PHRASE.write() = seed_phrase.clone();
     *SIGNING_KEY_BYTES.write() = sk_bytes;
+    *MY_PUBKEY_BYTES.write() = pubkey_bytes;
     *NICKNAME.write() = name.clone();
     *CONNECTION_STATUS.write() = "connecting".to_string();
     *IS_ONBOARDED.write() = true;
@@ -358,7 +394,7 @@ pub fn start_node(sk_bytes: [u8; 32], pubkey_bytes: [u8; 32], seed_phrase: Strin
                 // Store the node globally and start the shared message loop
                 let node = Arc::new(new_node);
                 *IROH_NODE.lock().unwrap() = Some(node.clone());
-                start_message_loop(node, sk_bytes, name.clone(), cancel);
+                start_message_loop(node, sk_bytes, pubkey_bytes, name.clone(), cancel);
             }
             Err(e) => {
                 println!("[imax] Failed to start node: {e}");

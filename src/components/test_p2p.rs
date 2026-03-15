@@ -7,15 +7,16 @@ use imax_core::network::discovery::{InviteCode, InvitePayload};
 use dioxus::prelude::ReadableExt;
 use uuid::Uuid;
 use crate::state::{
-    NICKNAME, SIGNING_KEY_BYTES, CONNECTION_STATUS, NODE_STARTED,
+    NICKNAME, SIGNING_KEY_BYTES, MY_PUBKEY_BYTES, CONNECTION_STATUS, NODE_STARTED,
     INVITE_CODE, Message, OutgoingMessage, UiUpdate,
     UI_UPDATE_TX, get_peer_id, register_peer, hex,
     get_iroh_node, IROH_NODE, OUTGOING_TX, NODE_CANCEL,
+    register_peer_pubkey, get_peer_pubkey, get_or_derive_sym_key,
 };
 
 /// Start the shared accept + outgoing message loop on the global node.
 /// Each call starts a new loop (previous one should be cancelled via CancellationToken).
-pub fn start_message_loop(node: Arc<IrohNode>, sk_bytes: [u8; 32], nickname: String, cancel: CancellationToken) {
+pub fn start_message_loop(node: Arc<IrohNode>, _sk_bytes: [u8; 32], pubkey_bytes: [u8; 32], nickname: String, cancel: CancellationToken) {
     // Set up the outgoing message channel
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<OutgoingMessage>();
     *OUTGOING_TX.lock().unwrap() = Some(tx);
@@ -57,10 +58,13 @@ pub fn start_message_loop(node: Arc<IrohNode>, sk_bytes: [u8; 32], nickname: Str
                                         });
                                     }
 
+                                    // Store peer's public key for E2E encryption
+                                    register_peer_pubkey(&chat_id, public_key);
+
                                     // Auto-respond with our Hello if this is a new peer
                                     if !already_known {
                                         let hello_back = WireMessage::Hello {
-                                            public_key: sk_bytes,
+                                            public_key: pubkey_bytes,
                                             nickname: nickname.clone(),
                                             protocol_version: 1,
                                         };
@@ -69,16 +73,41 @@ pub fn start_message_loop(node: Arc<IrohNode>, sk_bytes: [u8; 32], nickname: Str
                                         }
                                     }
                                 }
-                                WireMessage::ChatMessage { id, ciphertext, timestamp, .. } => {
-                                    let content = String::from_utf8(ciphertext)
-                                        .unwrap_or_else(|_| "(binary message)".to_string());
-                                    let msg_id = id.to_string();
-                                    let ts = format_timestamp(timestamp);
-
+                                WireMessage::ChatMessage { id, ciphertext, nonce, timestamp } => {
                                     let chat_id = {
                                         let id_bytes = from_id.as_bytes();
                                         format!("chat-{}", hex(&id_bytes[..4]))
                                     };
+
+                                    let content = {
+                                        let sk_local = *SIGNING_KEY_BYTES.read();
+                                        let peer_pk = get_peer_pubkey(&chat_id);
+
+                                        if nonce == [0u8; 24] {
+                                            // Unencrypted message (legacy/fallback)
+                                            String::from_utf8(ciphertext)
+                                                .unwrap_or_else(|_| "(binary message)".to_string())
+                                        } else if let Some(pk) = peer_pk {
+                                            match get_or_derive_sym_key(&chat_id, &sk_local, &pk) {
+                                                Some(sym_key) => {
+                                                    match imax_core::crypto::e2e::decrypt(&sym_key, &ciphertext, &nonce, id.as_bytes()) {
+                                                        Ok(plaintext) => String::from_utf8(plaintext)
+                                                            .unwrap_or_else(|_| "(binary)".to_string()),
+                                                        Err(e) => {
+                                                            println!("[imax] Decrypt error: {e}");
+                                                            "(encrypted message - decryption failed)".to_string()
+                                                        }
+                                                    }
+                                                }
+                                                None => "(encrypted message - no key)".to_string(),
+                                            }
+                                        } else {
+                                            "(encrypted message - unknown peer)".to_string()
+                                        }
+                                    };
+
+                                    let msg_id = id.to_string();
+                                    let ts = format_timestamp(timestamp);
 
                                     // Send Ack::Delivered back to peer
                                     let ack = WireMessage::Ack {
@@ -150,10 +179,38 @@ pub fn start_message_loop(node: Arc<IrohNode>, sk_bytes: [u8; 32], nickname: Str
                                 .unwrap_or_default()
                                 .as_secs();
 
+                            let msg_id = Uuid::new_v4();
+                            let peer_pk = get_peer_pubkey(&outgoing.chat_id);
+                            let sk_local = *SIGNING_KEY_BYTES.read();
+
+                            let (ciphertext, nonce) = match peer_pk {
+                                Some(pk) => {
+                                    match get_or_derive_sym_key(&outgoing.chat_id, &sk_local, &pk) {
+                                        Some(sym_key) => {
+                                            match imax_core::crypto::e2e::encrypt(&sym_key, outgoing.text.as_bytes(), msg_id.as_bytes()) {
+                                                Ok(result) => result,
+                                                Err(e) => {
+                                                    println!("[imax] Encrypt error: {e}, sending plaintext");
+                                                    (outgoing.text.into_bytes(), [0u8; 24])
+                                                }
+                                            }
+                                        }
+                                        None => {
+                                            println!("[imax] Key derivation failed, sending plaintext");
+                                            (outgoing.text.into_bytes(), [0u8; 24])
+                                        }
+                                    }
+                                }
+                                None => {
+                                    println!("[imax] No peer pubkey, sending plaintext");
+                                    (outgoing.text.into_bytes(), [0u8; 24])
+                                }
+                            };
+
                             let wire_msg = WireMessage::ChatMessage {
-                                id: Uuid::new_v4(),
-                                ciphertext: outgoing.text.into_bytes(),
-                                nonce: [0u8; 24],
+                                id: msg_id,
+                                ciphertext,
+                                nonce,
                                 timestamp: now,
                             };
 
@@ -173,7 +230,7 @@ pub fn start_message_loop(node: Arc<IrohNode>, sk_bytes: [u8; 32], nickname: Str
 }
 
 /// Generate an invite code from a live node and store it in INVITE_CODE.
-fn generate_invite_code(node: &IrohNode, sk_bytes: &[u8; 32]) {
+fn generate_invite_code(node: &IrohNode, pubkey_bytes: &[u8; 32]) {
     let addr = node.endpoint().addr();
     let node_id = node.node_id();
     let addrs: Vec<std::net::SocketAddr> = addr.ip_addrs().cloned().collect();
@@ -182,7 +239,7 @@ fn generate_invite_code(node: &IrohNode, sk_bytes: &[u8; 32]) {
         .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() + 86400;
 
     let payload = InvitePayload {
-        public_key: *sk_bytes,
+        public_key: *pubkey_bytes,
         node_id: *node_id.as_bytes(),
         addrs,
         relay_url,
@@ -223,7 +280,8 @@ pub async fn run_test_p2p() -> Result<(), String> {
     };
 
     // Generate invite code from the live node
-    generate_invite_code(&node, &sk_bytes);
+    let pubkey_bytes = *MY_PUBKEY_BYTES.read();
+    generate_invite_code(&node, &pubkey_bytes);
 
     let node_id = node.node_id();
     let addr = node.endpoint().addr();
@@ -236,7 +294,8 @@ pub async fn run_test_p2p() -> Result<(), String> {
 
     // Start the shared message loop
     let cancel = NODE_CANCEL.lock().unwrap().clone();
-    start_message_loop(node, sk_bytes, nickname, cancel);
+    let pubkey_bytes = *MY_PUBKEY_BYTES.read();
+    start_message_loop(node, sk_bytes, pubkey_bytes, nickname, cancel);
 
     Ok(())
 }
