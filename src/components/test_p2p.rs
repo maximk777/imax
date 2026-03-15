@@ -2,7 +2,7 @@ use iroh::SecretKey;
 use imax_core::network::node::{IrohNode, ALPN};
 use imax_core::network::protocol::{self, WireMessage};
 use dioxus::prelude::ReadableExt;
-use crate::state::{CHATS, NICKNAME, SIGNING_KEY_BYTES, ChatPreview};
+use crate::state::{CHATS, NICKNAME, SIGNING_KEY_BYTES, CONNECTION_STATUS, ChatPreview};
 
 pub async fn run_test_p2p() -> Result<(), String> {
     let sk_bytes = *SIGNING_KEY_BYTES.read();
