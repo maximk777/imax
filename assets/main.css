@@ -624,9 +624,10 @@ body {
 .modal-code {
     font-family: monospace;
     font-size: 12px;
-    color: #f5f5f5;
+    color: #6ab3f3;
     word-break: break-all;
     line-height: 1.5;
+    user-select: all;
 }
 .modal-input {
     width: 100%;
