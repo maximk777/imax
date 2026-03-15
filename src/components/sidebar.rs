@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use crate::state::{ACTIVE_CHAT_ID, CHATS, MESSAGES, NICKNAME, SHOW_INVITE_MODAL, SHOW_SETTINGS_MODAL, CONNECTION_STATUS};
+use crate::state::{ACTIVE_CHAT_ID, CHATS, MESSAGES, ALL_MESSAGES, NICKNAME, SHOW_INVITE_MODAL, SHOW_SETTINGS_MODAL, CONNECTION_STATUS};
 use crate::components::test_p2p::run_test_p2p;
 
 const AVATAR_COLORS: [&str; 4] = ["blue", "green", "purple", "orange"];
@@ -104,8 +104,9 @@ pub fn Sidebar() -> Element {
                                 class: "{item_class}",
                                 onclick: move |_| {
                                     *ACTIVE_CHAT_ID.write() = Some(chat_id2.clone());
-                                    // Messages would be loaded from ChatManager in real flow
-                                    *MESSAGES.write() = vec![];
+                                    // Load messages for this chat from the persistent store
+                                    let msgs = ALL_MESSAGES.read().get(&chat_id2).cloned().unwrap_or_default();
+                                    *MESSAGES.write() = msgs;
                                 },
                                 div { class: "chat-avatar color-{avatar_color}", "{first}" }
                                 div { class: "chat-item-info",

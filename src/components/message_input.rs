@@ -1,17 +1,11 @@
 use dioxus::prelude::*;
-use crate::state::{ACTIVE_CHAT_ID, MESSAGES, Message, OUTGOING_TX, OutgoingMessage};
+use crate::state::{ACTIVE_CHAT_ID, Message, OUTGOING_TX, OutgoingMessage, add_message};
 
 #[component]
 pub fn MessageInput() -> Element {
     let mut draft = use_signal(String::new);
 
-    let send = move |_| {
-        let text = draft.read().trim().to_string();
-        if text.is_empty() {
-            return;
-        }
-
-        // Append the new message to the global messages list.
+    let send_message = move |text: String| {
         let active = ACTIVE_CHAT_ID.read().clone();
         if let Some(ref chat_id) = active {
             let msg = Message {
@@ -21,7 +15,7 @@ pub fn MessageInput() -> Element {
                 time: "now".into(),
                 status: "sent".into(),
             };
-            MESSAGES.write().push(msg);
+            add_message(chat_id, msg);
 
             // Enqueue for P2P delivery
             if let Some(tx) = OUTGOING_TX.get() {
@@ -31,37 +25,21 @@ pub fn MessageInput() -> Element {
                 });
             }
         }
-
         println!("[imax] send: {text}");
+    };
+
+    let send = move |_| {
+        let text = draft.read().trim().to_string();
+        if text.is_empty() { return; }
+        send_message(text);
         *draft.write() = String::new();
     };
 
     let on_keydown = move |evt: KeyboardEvent| {
         if evt.key() == Key::Enter {
             let text = draft.read().trim().to_string();
-            if text.is_empty() {
-                return;
-            }
-            let active = ACTIVE_CHAT_ID.read().clone();
-            if let Some(ref chat_id) = active {
-                let msg = Message {
-                    id: uuid(),
-                    content: text.clone(),
-                    is_mine: true,
-                    time: "now".into(),
-                    status: "sent".into(),
-                };
-                MESSAGES.write().push(msg);
-
-                // Enqueue for P2P delivery
-                if let Some(tx) = OUTGOING_TX.get() {
-                    let _ = tx.send(OutgoingMessage {
-                        chat_id: chat_id.clone(),
-                        text: text.clone(),
-                    });
-                }
-            }
-            println!("[imax] send: {text}");
+            if text.is_empty() { return; }
+            send_message(text);
             *draft.write() = String::new();
         }
     };

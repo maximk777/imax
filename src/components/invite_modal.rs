@@ -1,17 +1,13 @@
 use dioxus::prelude::*;
 use dioxus::document::eval;
-use iroh::{SecretKey, EndpointId, EndpointAddr, TransportAddr, RelayUrl};
-use imax_core::network::node::IrohNode;
+use iroh::{EndpointId, EndpointAddr, TransportAddr, RelayUrl};
 use imax_core::network::discovery::InviteCode;
 use imax_core::network::protocol::WireMessage;
 use crate::state::{
     SHOW_INVITE_MODAL, INVITE_CODE, NICKNAME, SIGNING_KEY_BYTES,
-    CONNECTION_STATUS, NODE_STARTED, CHATS, ChatPreview, register_peer_addr,
+    CONNECTION_STATUS, NODE_STARTED, CHATS, IROH_NODE, ChatPreview,
+    register_peer, hex,
 };
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
 
 #[component]
 pub fn InviteModal() -> Element {
@@ -100,64 +96,63 @@ pub fn InviteModal() -> Element {
                             spawn(async move {
                                 match InviteCode::decode(&code) {
                                     Ok(payload) => {
+                                        // Use the global node — no temp node needed
+                                        let node = match IROH_NODE.get() {
+                                            Some(n) => n.clone(),
+                                            None => {
+                                                *connect_status.write() = "Node not ready yet".into();
+                                                *connecting.write() = false;
+                                                return;
+                                            }
+                                        };
+
+                                        let peer_id = match EndpointId::from_bytes(&payload.node_id) {
+                                            Ok(id) => id,
+                                            Err(e) => {
+                                                *connect_status.write() = format!("Invalid peer ID: {e}");
+                                                *connecting.write() = false;
+                                                return;
+                                            }
+                                        };
+
+                                        let mut transport_addrs: Vec<TransportAddr> = payload
+                                            .addrs.iter().map(|a| TransportAddr::Ip(*a)).collect();
+
+                                        if let Some(relay_str) = &payload.relay_url {
+                                            if let Ok(relay_url) = relay_str.parse::<RelayUrl>() {
+                                                transport_addrs.push(TransportAddr::Relay(relay_url));
+                                            }
+                                        }
+
+                                        let peer_addr = EndpointAddr::from_parts(peer_id, transport_addrs);
+
                                         let sk_bytes = *SIGNING_KEY_BYTES.read();
-                                        let iroh_key = SecretKey::from_bytes(&sk_bytes);
+                                        let nickname = NICKNAME.read().clone();
+                                        let hello = WireMessage::Hello {
+                                            public_key: sk_bytes,
+                                            nickname: nickname.clone(),
+                                            protocol_version: 1,
+                                        };
 
-                                        match IrohNode::new(iroh_key).await {
-                                            Ok(node) => {
-                                                node.endpoint().online().await;
-
-                                                let peer_id = match EndpointId::from_bytes(&payload.node_id) {
-                                                    Ok(id) => id,
-                                                    Err(e) => {
-                                                        *connect_status.write() = format!("Invalid peer ID: {e}");
-                                                        *connecting.write() = false;
-                                                        return;
-                                                    }
+                                        match node.send_to_addr(peer_addr, &hello).await {
+                                            Ok(_) => {
+                                                let peer_name = format!("Peer {}", bs58::encode(&payload.public_key[..4]).into_string());
+                                                let chat_id = format!("chat-{}", hex(&payload.node_id[..4]));
+                                                let chat = ChatPreview {
+                                                    id: chat_id.clone(),
+                                                    peer_name,
+                                                    last_message: "Connected!".into(),
+                                                    time: "now".into(),
+                                                    avatar_color: (payload.public_key[0] as usize) % 4,
                                                 };
-
-                                                let mut transport_addrs: Vec<TransportAddr> = payload
-                                                    .addrs.iter().map(|a| TransportAddr::Ip(*a)).collect();
-
-                                                if let Some(relay_str) = &payload.relay_url {
-                                                    if let Ok(relay_url) = relay_str.parse::<RelayUrl>() {
-                                                        transport_addrs.push(TransportAddr::Relay(relay_url));
-                                                    }
-                                                }
-
-                                                let peer_addr = EndpointAddr::from_parts(peer_id, transport_addrs);
-
-                                                let nickname = NICKNAME.read().clone();
-                                                let hello = WireMessage::Hello {
-                                                    public_key: sk_bytes,
-                                                    nickname: nickname.clone(),
-                                                    protocol_version: 1,
-                                                };
-
-                                                match node.send_to_addr(peer_addr.clone(), &hello).await {
-                                                    Ok(_) => {
-                                                        let peer_name = format!("Peer {}", bs58::encode(&payload.public_key[..4]).into_string());
-                                                        let chat_id = format!("chat-{}", hex(&payload.node_id[..4]));
-                                                        let chat = ChatPreview {
-                                                            id: chat_id.clone(),
-                                                            peer_name,
-                                                            last_message: "Connected!".into(),
-                                                            time: "now".into(),
-                                                            avatar_color: (payload.public_key[0] as usize) % 4,
-                                                        };
-                                                        CHATS.write().push(chat);
-                                                        // Register the peer's addr so outgoing messages can reach them
-                                                        register_peer_addr(chat_id, peer_addr);
-                                                        *CONNECTION_STATUS.write() = "connected".into();
-                                                        *SHOW_INVITE_MODAL.write() = false;
-                                                    }
-                                                    Err(e) => {
-                                                        *connect_status.write() = format!("Connection failed: {e}");
-                                                    }
-                                                }
+                                                CHATS.write().push(chat);
+                                                // Register just the peer ID — iroh caches transport addrs after connect
+                                                register_peer(chat_id, peer_id);
+                                                *CONNECTION_STATUS.write() = "connected".into();
+                                                *SHOW_INVITE_MODAL.write() = false;
                                             }
                                             Err(e) => {
-                                                *connect_status.write() = format!("Network error: {e}");
+                                                *connect_status.write() = format!("Connection failed: {e}");
                                             }
                                         }
                                     }

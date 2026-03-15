@@ -1,11 +1,13 @@
+use std::sync::Arc;
 use dioxus::prelude::*;
 use iroh::SecretKey;
 use imax_core::network::node::IrohNode;
 use imax_core::network::discovery::{InviteCode, InvitePayload};
 use crate::state::{
     IS_ONBOARDED, NICKNAME, SEED_PHRASE, INVITE_CODE,
-    SIGNING_KEY_BYTES, NODE_STARTED, CONNECTION_STATUS,
+    SIGNING_KEY_BYTES, NODE_STARTED, CONNECTION_STATUS, IROH_NODE,
 };
+use crate::components::test_p2p::start_message_loop;
 
 #[component]
 pub fn Onboarding() -> Element {
@@ -41,13 +43,12 @@ pub fn Onboarding() -> Element {
                     println!("[imax] Starting iroh node...");
                     let iroh_key = SecretKey::from_bytes(&sk_bytes);
                     match IrohNode::new(iroh_key).await {
-                        Ok(node) => {
+                        Ok(new_node) => {
                             println!("[imax] Node created, waiting for relay...");
 
-                            // Use timeout for online() — don't hang forever
                             let online_result = tokio::time::timeout(
                                 std::time::Duration::from_secs(15),
-                                node.endpoint().online()
+                                new_node.endpoint().online()
                             ).await;
 
                             match online_result {
@@ -56,8 +57,8 @@ pub fn Onboarding() -> Element {
                             }
 
                             // Generate real invite code
-                            let addr = node.endpoint().addr();
-                            let node_id = node.node_id();
+                            let addr = new_node.endpoint().addr();
+                            let node_id = new_node.node_id();
                             let addrs: Vec<std::net::SocketAddr> =
                                 addr.ip_addrs().cloned().collect();
                             let relay_url = addr.relay_urls().next().map(|u| u.to_string());
@@ -90,31 +91,10 @@ pub fn Onboarding() -> Element {
                             *CONNECTION_STATUS.write() = "online".to_string();
                             *NODE_STARTED.write() = true;
 
-                            // Accept loop for incoming connections
-                            println!("[imax] Listening for incoming connections...");
-                            loop {
-                                match node.accept_one().await {
-                                    Ok((msg, from_id)) => {
-                                        println!("[imax] Received from {:?}: {:?}", from_id, msg);
-                                        if let imax_core::network::protocol::WireMessage::Hello {
-                                            nickname, public_key, ..
-                                        } = msg {
-                                            let chat = crate::state::ChatPreview {
-                                                id: format!("chat-{:02x}{:02x}", public_key[0], public_key[1]),
-                                                peer_name: nickname,
-                                                last_message: "Connected!".into(),
-                                                time: "now".into(),
-                                                avatar_color: (public_key[0] as usize) % 4,
-                                            };
-                                            crate::state::CHATS.write().push(chat);
-                                        }
-                                    }
-                                    Err(e) => {
-                                        println!("[imax] Accept error: {e}");
-                                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                                    }
-                                }
-                            }
+                            // Store the node globally and start the shared message loop
+                            let node = Arc::new(new_node);
+                            let _ = IROH_NODE.set(node.clone());
+                            start_message_loop(node);
                         }
                         Err(e) => {
                             println!("[imax] Failed to start node: {e}");
