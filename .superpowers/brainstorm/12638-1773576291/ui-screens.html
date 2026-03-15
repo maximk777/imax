@@ -1,0 +1,149 @@
+<h2>Секция 6: UI экраны (MVP)</h2>
+<p class="subtitle">Минимальный набор экранов для рабочего чата</p>
+
+<div class="section">
+  <h3>Навигация</h3>
+  <div style="margin: 16px 0; padding: 20px; background: #1a1a2e; border-radius: 8px; font-family: monospace; font-size: 13px; line-height: 1.7; color: #e0e0e0;">
+<pre style="margin:0; color: #f8f8f2;">
+<span style="color:#6272a4;">// Первый запуск:</span>
+<span style="color:#50fa7b;">Onboarding</span> ──▶ <span style="color:#50fa7b;">Home</span>
+
+<span style="color:#6272a4;">// Основной flow:</span>
+<span style="color:#50fa7b;">Home</span> (список чатов) ──▶ <span style="color:#50fa7b;">Chat</span> (переписка)
+  │
+  ├──▶ <span style="color:#f1fa8c;">New Chat</span> (ввести invite / сгенерировать)
+  └──▶ <span style="color:#f1fa8c;">Settings</span> (ник, seed export)
+</pre>
+  </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0;">
+
+  <div class="mockup">
+    <div class="mockup-header">1. Onboarding</div>
+    <div class="mockup-body" style="padding: 24px;">
+      <div style="text-align: center; margin-bottom: 20px;">
+        <div style="font-size: 28px; font-weight: bold; color: #8be9fd;">dchat</div>
+        <div style="color: #6272a4; margin-top: 4px;">P2P encrypted messenger</div>
+      </div>
+      <div style="background: #21222c; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+        <div style="color: #6272a4; font-size: 11px; margin-bottom: 8px;">YOUR SEED PHRASE</div>
+        <div style="color: #f1fa8c; font-size: 12px; line-height: 1.8; word-spacing: 8px;">
+          apple banana cherry dawn echo frost grape honey iris jazz kite luna moon nest ocean palm quest rose star tide unity voice wave xenon
+        </div>
+      </div>
+      <div style="background: #21222c; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+        <div style="color: #6272a4; font-size: 11px; margin-bottom: 4px;">NICKNAME</div>
+        <div style="color: #f8f8f2;">Anonymous_</div>
+      </div>
+      <button class="mock-button" style="width: 100%; padding: 12px;">Create Identity</button>
+      <div style="text-align: center; margin-top: 12px; color: #6272a4; font-size: 12px;">or restore from seed phrase</div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">2. Home — список чатов</div>
+    <div class="mockup-body" style="padding: 0;">
+      <div style="padding: 16px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center;">
+        <div style="font-weight: bold; color: #f8f8f2;">Chats</div>
+        <div style="background: #8be9fd; color: #1a1a2e; padding: 4px 12px; border-radius: 4px; font-size: 12px; cursor: pointer;">+ New</div>
+      </div>
+      <div style="padding: 12px 16px; border-bottom: 1px solid #282a36; display: flex; align-items: center; gap: 12px;">
+        <div style="width: 40px; height: 40px; border-radius: 50%; background: #bd93f9; display: flex; align-items: center; justify-content: center; font-weight: bold;">A</div>
+        <div style="flex: 1;">
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #f8f8f2; font-weight: 500;">Alice</span>
+            <span style="color: #6272a4; font-size: 11px;">2 min</span>
+          </div>
+          <div style="color: #6272a4; font-size: 13px; margin-top: 2px;">Hey, are you there?</div>
+        </div>
+        <div style="background: #50fa7b; color: #1a1a2e; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold;">1</div>
+      </div>
+      <div style="padding: 12px 16px; border-bottom: 1px solid #282a36; display: flex; align-items: center; gap: 12px;">
+        <div style="width: 40px; height: 40px; border-radius: 50%; background: #ff79c6; display: flex; align-items: center; justify-content: center; font-weight: bold;">B</div>
+        <div style="flex: 1;">
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #f8f8f2; font-weight: 500;">Bob</span>
+            <span style="color: #6272a4; font-size: 11px;">1 hour</span>
+          </div>
+          <div style="color: #6272a4; font-size: 13px; margin-top: 2px;">See you tomorrow!</div>
+        </div>
+      </div>
+      <div style="padding: 12px 16px; border-bottom: 1px solid #282a36; display: flex; align-items: center; gap: 12px; opacity: 0.5;">
+        <div style="width: 40px; height: 40px; border-radius: 50%; background: #f1fa8c; color: #1a1a2e; display: flex; align-items: center; justify-content: center; font-weight: bold;">C</div>
+        <div style="flex: 1;">
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #f8f8f2; font-weight: 500;">Charlie <span style="color:#6272a4; font-size:10px;">offline</span></span>
+            <span style="color: #6272a4; font-size: 11px;">3 days</span>
+          </div>
+          <div style="color: #6272a4; font-size: 13px; margin-top: 2px;">Thanks for the file</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">3. Chat — переписка</div>
+    <div class="mockup-body" style="padding: 0; display: flex; flex-direction: column; min-height: 300px;">
+      <div style="padding: 12px 16px; border-bottom: 1px solid #333; display: flex; align-items: center; gap: 8px;">
+        <span style="color: #6272a4; cursor: pointer;">←</span>
+        <div style="width: 32px; height: 32px; border-radius: 50%; background: #bd93f9; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: bold;">A</div>
+        <div>
+          <div style="color: #f8f8f2; font-weight: 500; font-size: 14px;">Alice</div>
+          <div style="color: #50fa7b; font-size: 10px;">online</div>
+        </div>
+      </div>
+      <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 8px;">
+        <div style="align-self: flex-start; background: #21222c; padding: 8px 12px; border-radius: 12px 12px 12px 4px; max-width: 75%; font-size: 13px;">
+          <div style="color: #f8f8f2;">Hey, are you there?</div>
+          <div style="color: #6272a4; font-size: 10px; text-align: right; margin-top: 4px;">14:32</div>
+        </div>
+        <div style="align-self: flex-end; background: #44475a; padding: 8px 12px; border-radius: 12px 12px 4px 12px; max-width: 75%; font-size: 13px;">
+          <div style="color: #f8f8f2;">Yeah! What's up?</div>
+          <div style="color: #6272a4; font-size: 10px; text-align: right; margin-top: 4px;">14:33 ✓✓</div>
+        </div>
+        <div style="align-self: flex-start; background: #21222c; padding: 8px 12px; border-radius: 12px 12px 12px 4px; max-width: 75%; font-size: 13px;">
+          <div style="color: #f8f8f2;">Check out this P2P thing 🔥</div>
+          <div style="color: #6272a4; font-size: 10px; text-align: right; margin-top: 4px;">14:33</div>
+        </div>
+      </div>
+      <div style="padding: 12px; border-top: 1px solid #333; display: flex; gap: 8px;">
+        <input class="mock-input" placeholder="Type a message..." style="flex: 1; margin: 0;">
+        <div style="background: #8be9fd; color: #1a1a2e; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px;">Send</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">4. New Chat — invite</div>
+    <div class="mockup-body" style="padding: 24px;">
+      <div style="text-align: center; margin-bottom: 20px; color: #f8f8f2; font-weight: 500;">Start a new chat</div>
+
+      <div style="background: #21222c; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+        <div style="color: #6272a4; font-size: 11px; margin-bottom: 8px;">YOUR INVITE CODE</div>
+        <div style="color: #8be9fd; font-size: 13px; word-break: break-all; font-family: monospace;">dchat:7f3a9b2c4d8e1f6a...</div>
+        <button class="mock-button" style="width: 100%; margin-top: 12px; padding: 8px;">Copy Code</button>
+      </div>
+
+      <div style="text-align: center; color: #6272a4; margin-bottom: 20px;">— or —</div>
+
+      <div style="background: #21222c; border-radius: 8px; padding: 16px;">
+        <div style="color: #6272a4; font-size: 11px; margin-bottom: 8px;">PASTE INVITE CODE</div>
+        <input class="mock-input" placeholder="dchat:..." style="width: 100%; box-sizing: border-box; margin-bottom: 12px;">
+        <button class="mock-button" style="width: 100%; padding: 8px;">Connect</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="section">
+  <h3>UI решения</h3>
+  <ul>
+    <li><strong>4 экрана для MVP</strong>: Onboarding, Home, Chat, New Chat (+ Settings позже)</li>
+    <li><strong>Статусы сообщений</strong>: ✓ sent, ✓✓ delivered, <span style="color:#8be9fd;">✓✓</span> read</li>
+    <li><strong>Онлайн-индикатор</strong>: зелёный для подключённых пиров</li>
+    <li><strong>Dracula-подобная тема</strong>: тёмная, контрастная (можно менять)</li>
+    <li><strong>Dioxus Signals</strong>: реактивное состояние, UI перерисовывается автоматически</li>
+  </ul>
+</div>

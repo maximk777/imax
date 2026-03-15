@@ -1,0 +1,59 @@
+<h2>Секция 1: Структура проекта</h2>
+<p class="subtitle">Workspace layout и модули dchat-core</p>
+
+<div style="margin: 20px 0; padding: 20px; background: #1a1a2e; border-radius: 8px; font-family: monospace; font-size: 13px; line-height: 1.6; color: #e0e0e0;">
+<pre style="margin:0; color: #f8f8f2;">
+dchat_1/
+├── Cargo.toml                  <span style="color:#6272a4;"># workspace root</span>
+│
+├── crates/
+│   └── dchat-core/             <span style="color:#6272a4;"># библиотека — вся логика</span>
+│       ├── Cargo.toml
+│       └── src/
+│           ├── lib.rs           <span style="color:#6272a4;"># re-exports</span>
+│           ├── identity/        <span style="color:#6272a4;"># keypair, seed phrase, ник</span>
+│           │   ├── mod.rs
+│           │   ├── keypair.rs   <span style="color:#6272a4;"># Ed25519 из BIP39</span>
+│           │   └── profile.rs   <span style="color:#6272a4;"># ник, аватар (потом)</span>
+│           ├── network/         <span style="color:#6272a4;"># P2P через iroh</span>
+│           │   ├── mod.rs
+│           │   ├── node.rs      <span style="color:#6272a4;"># iroh endpoint, connections</span>
+│           │   ├── discovery.rs <span style="color:#6272a4;"># invite-коды, DHT lookup</span>
+│           │   └── protocol.rs  <span style="color:#6272a4;"># свой протокол сообщений</span>
+│           ├── crypto/          <span style="color:#6272a4;"># E2E шифрование</span>
+│           │   ├── mod.rs
+│           │   └── e2e.rs       <span style="color:#6272a4;"># encrypt/decrypt на X25519</span>
+│           ├── storage/         <span style="color:#6272a4;"># SQLite</span>
+│           │   ├── mod.rs
+│           │   ├── db.rs        <span style="color:#6272a4;"># schema, migrations</span>
+│           │   └── models.rs    <span style="color:#6272a4;"># Message, Contact, Chat</span>
+│           └── chat/            <span style="color:#6272a4;"># бизнес-логика чатов</span>
+│               ├── mod.rs
+│               ├── manager.rs   <span style="color:#6272a4;"># ChatManager — оркестратор</span>
+│               └── types.rs     <span style="color:#6272a4;"># Chat, Message, Event</span>
+│
+└── src/                        <span style="color:#6272a4;"># Dioxus UI (бинарник)</span>
+    ├── main.rs                  <span style="color:#6272a4;"># точка входа</span>
+    ├── app.rs                   <span style="color:#6272a4;"># корневой компонент</span>
+    ├── state.rs                 <span style="color:#6272a4;"># глобальное состояние (signals)</span>
+    ├── components/              <span style="color:#6272a4;"># UI компоненты</span>
+    │   ├── chat_list.rs
+    │   ├── chat_view.rs
+    │   ├── message_input.rs
+    │   └── contact_list.rs
+    └── views/                   <span style="color:#6272a4;"># экраны</span>
+        ├── onboarding.rs        <span style="color:#6272a4;"># seed phrase / restore</span>
+        ├── home.rs              <span style="color:#6272a4;"># список чатов</span>
+        └── chat.rs              <span style="color:#6272a4;"># экран чата</span>
+</pre>
+</div>
+
+<div class="section">
+  <h3>Ключевые решения</h3>
+  <ul>
+    <li><strong>Cargo workspace</strong> — core отдельным крейтом, UI зависит от него</li>
+    <li><strong>dchat-core</strong> — чистая библиотека, без зависимости от UI. Можно тестировать изолированно</li>
+    <li><strong>5 модулей в core</strong>: identity, network, crypto, storage, chat</li>
+    <li><strong>ChatManager</strong> — главный оркестратор, связывает network ↔ storage ↔ crypto</li>
+  </ul>
+</div>

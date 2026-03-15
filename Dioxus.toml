@@ -1,0 +1,10 @@
+[application]
+name = "imax"
+default_platform = "desktop"
+asset_dir = "assets"
+
+[web.app]
+title = "iMax"
+
+[desktop.app]
+title = "iMax — P2P Encrypted Messenger"

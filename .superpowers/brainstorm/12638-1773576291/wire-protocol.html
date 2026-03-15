@@ -1,0 +1,111 @@
+<h2>Секция 4: Wire Protocol</h2>
+<p class="subtitle">Протокол обмена сообщениями поверх iroh</p>
+
+<div class="section">
+  <h3>Формат пакета</h3>
+  <div style="margin: 16px 0; padding: 20px; background: #1a1a2e; border-radius: 8px; font-family: monospace; font-size: 13px; line-height: 1.7; color: #e0e0e0;">
+<pre style="margin:0; color: #f8f8f2;">
+<span style="color:#6272a4;">// Все сообщения сериализуются через serde + postcard (компактный бинарный формат)</span>
+
+<span style="color:#ff79c6;">enum</span> <span style="color:#50fa7b;">WireMessage</span> {
+    <span style="color:#6272a4;">// --- Handshake (первое подключение) ---</span>
+    <span style="color:#f1fa8c;">Hello</span> {
+        public_key: [u8; 32],       <span style="color:#6272a4;">// Ed25519 pubkey</span>
+        nickname: String,           <span style="color:#6272a4;">// отображаемое имя</span>
+        protocol_version: u8,       <span style="color:#6272a4;">// версия протокола (1)</span>
+    },
+
+    <span style="color:#6272a4;">// --- Сообщения ---</span>
+    <span style="color:#f1fa8c;">ChatMessage</span> {
+        id: Uuid,                   <span style="color:#6272a4;">// уникальный ID</span>
+        ciphertext: Vec&lt;u8&gt;,        <span style="color:#6272a4;">// зашифрованный контент</span>
+        nonce: [u8; 24],            <span style="color:#6272a4;">// nonce для XChaCha20</span>
+        timestamp: u64,             <span style="color:#6272a4;">// unix millis</span>
+    },
+
+    <span style="color:#6272a4;">// --- Подтверждения ---</span>
+    <span style="color:#f1fa8c;">Ack</span> {
+        message_id: Uuid,           <span style="color:#6272a4;">// какое сообщение подтверждаем</span>
+        status: AckStatus,          <span style="color:#6272a4;">// delivered | read</span>
+    },
+
+    <span style="color:#6272a4;">// --- Синхронизация оффлайн ---</span>
+    <span style="color:#f1fa8c;">SyncRequest</span> {
+        last_seen_id: Option&lt;Uuid&gt;, <span style="color:#6272a4;">// последнее известное сообщение</span>
+    },
+    <span style="color:#f1fa8c;">SyncResponse</span> {
+        messages: Vec&lt;ChatMessage&gt;, <span style="color:#6272a4;">// пропущенные сообщения</span>
+    },
+
+    <span style="color:#6272a4;">// --- Присутствие ---</span>
+    <span style="color:#f1fa8c;">Ping</span>,
+    <span style="color:#f1fa8c;">Pong</span>,
+}
+
+<span style="color:#ff79c6;">enum</span> <span style="color:#50fa7b;">AckStatus</span> {
+    Delivered,
+    Read,
+}
+</pre>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Транспорт</h3>
+  <div style="margin: 16px 0; padding: 20px; background: #1a1a2e; border-radius: 8px; font-family: monospace; font-size: 13px; line-height: 1.7; color: #e0e0e0;">
+<pre style="margin:0; color: #f8f8f2;">
+<span style="color:#6272a4;">// iroh использует ALPN для мультиплексирования протоколов</span>
+<span style="color:#6272a4;">// Регистрируем свой протокол:</span>
+
+<span style="color:#ff79c6;">const</span> ALPN: &[u8] = <span style="color:#f1fa8c;">b"dchat/1"</span>;
+
+<span style="color:#6272a4;">// Каждое соединение — bidirectional QUIC stream</span>
+<span style="color:#6272a4;">// Формат кадра:</span>
+
+┌──────────────┬───────────────────┐
+│ <span style="color:#f1fa8c;">length: u32</span>  │ <span style="color:#50fa7b;">payload: [u8]</span>     │
+│  (4 bytes)   │  (postcard bytes) │
+└──────────────┴───────────────────┘
+
+<span style="color:#6272a4;">// length-prefixed framing — простой и надёжный</span>
+</pre>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Flow подключения</h3>
+  <div style="margin: 16px 0; padding: 20px; background: #1a1a2e; border-radius: 8px; font-family: monospace; font-size: 12px; line-height: 1.8; color: #e0e0e0;">
+<pre style="margin:0; color: #f8f8f2;">
+ <span style="color:#ff79c6;">Alice</span>                              <span style="color:#50fa7b;">Bob</span>
+  │                                   │
+  │──── QUIC connect (ALPN=dchat/1) ─▶│
+  │                                   │
+  │──── Hello { pubkey, nick, v=1 } ─▶│
+  │◀─── Hello { pubkey, nick, v=1 } ──│
+  │                                   │
+  │  <span style="color:#6272a4;">// обе стороны теперь знают pubkey друг друга</span>
+  │  <span style="color:#6272a4;">// X25519 shared secret = DH(alice_priv, bob_pub)</span>
+  │                                   │
+  │──── SyncRequest { last_seen } ───▶│
+  │◀─── SyncResponse { missed } ──────│
+  │                                   │
+  │◀═══ ChatMessage (encrypted) ═════▶│
+  │◀═══ Ack ═════════════════════════▶│
+  │                                   │
+  │──── Ping ────────────────────────▶│  <span style="color:#6272a4;">// каждые 30 сек</span>
+  │◀─── Pong ─────────────────────────│
+</pre>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Ключевые решения</h3>
+  <ul>
+    <li><strong>postcard</strong> — компактный бинарный формат, идеально для Rust (serde, no_std совместимый)</li>
+    <li><strong>Length-prefixed framing</strong> — 4 байта длины + payload. Просто парсить, нет проблем с разделителями</li>
+    <li><strong>XChaCha20-Poly1305</strong> — шифрование сообщений. Быстрый, безопасный, 24-byte nonce (нет проблем с повторами)</li>
+    <li><strong>Ping/Pong</strong> — keepalive каждые 30 сек для обнаружения обрыва</li>
+    <li><strong>SyncRequest/Response</strong> — при reconnect досылка пропущенных сообщений</li>
+    <li><strong>protocol_version</strong> — в Hello, для обратной совместимости в будущем</li>
+  </ul>
+</div>

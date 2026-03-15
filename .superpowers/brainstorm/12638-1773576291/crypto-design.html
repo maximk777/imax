@@ -1,0 +1,85 @@
+<h2>Секция 5: E2E шифрование</h2>
+<p class="subtitle">Криптографические примитивы и ключевой обмен</p>
+
+<div class="section">
+  <h3>Схема ключей</h3>
+  <div style="margin: 16px 0; padding: 20px; background: #1a1a2e; border-radius: 8px; font-family: monospace; font-size: 13px; line-height: 1.7; color: #e0e0e0;">
+<pre style="margin:0; color: #f8f8f2;">
+<span style="color:#6272a4;">// 1. Из BIP39 seed phrase → мастер-ключ</span>
+seed_phrase (24 words)
+    │
+    ▼  <span style="color:#6272a4;">HKDF-SHA256</span>
+┌──────────────────────┐
+│  master_secret       │
+│  (32 bytes)          │
+└──────┬───────────────┘
+       │
+       ├──▶ <span style="color:#50fa7b;">Ed25519 keypair</span>        <span style="color:#6272a4;">// identity (подписи, NodeId)</span>
+       │     ├── public_key         <span style="color:#6272a4;">// = твой идентификатор</span>
+       │     └── secret_key         <span style="color:#6272a4;">// хранится локально</span>
+       │
+       └──▶ <span style="color:#f1fa8c;">X25519 keypair</span>         <span style="color:#6272a4;">// encryption (DH key exchange)</span>
+             ├── public_key         <span style="color:#6272a4;">// отправляется в Hello</span>
+             └── secret_key         <span style="color:#6272a4;">// хранится локально</span>
+
+<span style="color:#6272a4;">// Ed25519 → X25519 конверсия стандартная (RFC 7748)</span>
+</pre>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Шифрование сообщения</h3>
+  <div style="margin: 16px 0; padding: 20px; background: #1a1a2e; border-radius: 8px; font-family: monospace; font-size: 13px; line-height: 1.7; color: #e0e0e0;">
+<pre style="margin:0; color: #f8f8f2;">
+<span style="color:#6272a4;">// Для каждой пары (Alice, Bob) вычисляется shared secret:</span>
+
+shared_secret = X25519_DH(alice_x25519_secret, bob_x25519_public)
+    │
+    ▼  <span style="color:#6272a4;">HKDF-SHA256 (salt = sorted_pubkeys)</span>
+    │
+symmetric_key (32 bytes)
+
+<span style="color:#6272a4;">// Шифрование каждого сообщения:</span>
+
+nonce = random_24_bytes()  <span style="color:#6272a4;">// уникальный для каждого сообщения</span>
+
+ciphertext = <span style="color:#50fa7b;">XChaCha20-Poly1305</span>(
+    key   = symmetric_key,
+    nonce = nonce,
+    aad   = message_id,    <span style="color:#6272a4;">// associated data — защита от подмены</span>
+    data  = plaintext
+)
+
+<span style="color:#6272a4;">// Отправляем: { id, ciphertext, nonce, timestamp }</span>
+<span style="color:#6272a4;">// symmetric_key НИКОГДА не передаётся по сети</span>
+</pre>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Rust crates</h3>
+  <div style="margin: 16px 0; padding: 20px; background: #1a1a2e; border-radius: 8px; font-family: monospace; font-size: 13px; line-height: 1.7; color: #e0e0e0;">
+<pre style="margin:0; color: #f8f8f2;">
+<span style="color:#6272a4;"># Cargo.toml (dchat-core)</span>
+
+<span style="color:#f1fa8c;">bip39</span>          = "2"        <span style="color:#6272a4;"># seed phrase генерация/парсинг</span>
+<span style="color:#f1fa8c;">ed25519-dalek</span>  = "2"        <span style="color:#6272a4;"># Ed25519 подписи</span>
+<span style="color:#f1fa8c;">x25519-dalek</span>   = "2"        <span style="color:#6272a4;"># X25519 DH key exchange</span>
+<span style="color:#f1fa8c;">chacha20poly1305</span> = "0.10"   <span style="color:#6272a4;"># XChaCha20-Poly1305 AEAD</span>
+<span style="color:#f1fa8c;">hkdf</span>           = "0.12"     <span style="color:#6272a4;"># HKDF key derivation</span>
+<span style="color:#f1fa8c;">sha2</span>           = "0.10"     <span style="color:#6272a4;"># SHA-256 для HKDF</span>
+<span style="color:#f1fa8c;">rand</span>           = "0.8"      <span style="color:#6272a4;"># nonce генерация</span>
+</pre>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Свойства безопасности</h3>
+  <ul>
+    <li><strong>Confidentiality</strong> — XChaCha20-Poly1305 AEAD, только участники могут читать</li>
+    <li><strong>Integrity</strong> — Poly1305 MAC + message_id как AAD, подмена детектируется</li>
+    <li><strong>Authentication</strong> — Ed25519 identity привязан к iroh NodeId, подделка невозможна</li>
+    <li><strong>Нет forward secrecy</strong> — для MVP ок. Double Ratchet добавим позже</li>
+    <li><strong>Replay protection</strong> — UUID сообщения + проверка дубликатов в SQLite</li>
+  </ul>
+</div>

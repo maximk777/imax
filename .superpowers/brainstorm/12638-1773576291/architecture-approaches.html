@@ -1,0 +1,71 @@
+<h2>Архитектурные подходы</h2>
+<p class="subtitle">Как организовать слои приложения для Desktop + Web + Mobile</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Monolith Core — рекомендую</h3>
+      <p><strong>Единое ядро (core lib)</strong> содержит всю бизнес-логику, P2P, крипто, хранилище. Dioxus UI — тонкая оболочка, которая вызывает core через Rust API.</p>
+      <div style="margin: 16px 0; padding: 16px; background: #1a1a2e; border-radius: 8px; font-family: monospace; font-size: 13px; line-height: 1.8; color: #e0e0e0;">
+        <div style="text-align:center; margin-bottom: 12px; color: #8be9fd;">┌─────────────────────────────────┐</div>
+        <div style="text-align:center; color: #8be9fd;">│  <span style="color:#ff79c6;">Dioxus UI</span> (Desktop/Web/Mobile)  │</div>
+        <div style="text-align:center; color: #8be9fd;">└──────────────┬──────────────────┘</div>
+        <div style="text-align:center; color: #8be9fd;">               │ Rust API calls</div>
+        <div style="text-align:center; color: #8be9fd;">┌──────────────▼──────────────────┐</div>
+        <div style="text-align:center; color: #8be9fd;">│     <span style="color:#50fa7b;">dchat-core</span> (library crate)    │</div>
+        <div style="text-align:center; color: #8be9fd;">│  ┌────────┐ ┌──────┐ ┌───────┐  │</div>
+        <div style="text-align:center; color: #8be9fd;">│  │<span style="color:#f1fa8c;">Network</span> │ │<span style="color:#f1fa8c;">Crypto</span>│ │<span style="color:#f1fa8c;">Storage</span>│  │</div>
+        <div style="text-align:center; color: #8be9fd;">│  │ (iroh)  │ │(E2E) │ │(SQLite)│  │</div>
+        <div style="text-align:center; color: #8be9fd;">│  └────────┘ └──────┘ └───────┘  │</div>
+        <div style="text-align:center; color: #8be9fd;">└─────────────────────────────────┘</div>
+      </div>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Один codebase — UI просто рендерит состояние</li>
+          <li>Проще тестировать ядро без UI</li>
+          <li>Все платформы получают одинаковую логику</li>
+          <li>Быстрый путь к MVP</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Веб-платформа потребует relay (нет прямых сокетов)</li>
+          <li>Нужна условная компиляция для платформ</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Core + Platform Adapters</h3>
+      <p><strong>Ядро + платформенные адаптеры.</strong> Core определяет трейты (NetworkAdapter, StorageAdapter), каждая платформа реализует их по-своему. Веб — через WebRTC/relay, десктоп — через iroh напрямую.</p>
+      <div style="margin: 16px 0; padding: 16px; background: #1a1a2e; border-radius: 8px; font-family: monospace; font-size: 13px; line-height: 1.8; color: #e0e0e0;">
+        <div style="text-align:center; color: #8be9fd;">┌────────────────────────────────────────┐</div>
+        <div style="text-align:center; color: #8be9fd;">│  <span style="color:#ff79c6;">Dioxus UI</span>                              │</div>
+        <div style="text-align:center; color: #8be9fd;">└──────────────┬─────────────────────────┘</div>
+        <div style="text-align:center; color: #8be9fd;">┌──────────────▼─────────────────────────┐</div>
+        <div style="text-align:center; color: #8be9fd;">│  <span style="color:#50fa7b;">dchat-core</span> (traits + logic)            │</div>
+        <div style="text-align:center; color: #8be9fd;">└──┬──────────────┬──────────────┬───────┘</div>
+        <div style="text-align:center; color: #8be9fd;">   │              │              │</div>
+        <div style="text-align:center; color: #8be9fd;">┌──▼───┐    ┌────▼────┐   ┌────▼────┐</div>
+        <div style="text-align:center; color: #8be9fd;">│<span style="color:#f1fa8c;">Desktop</span>│    │  <span style="color:#f1fa8c;">Web</span>    │   │ <span style="color:#f1fa8c;">Mobile</span>  │</div>
+        <div style="text-align:center; color: #8be9fd;">│ iroh  │    │WebRTC/  │   │  iroh   │</div>
+        <div style="text-align:center; color: #8be9fd;">│direct │    │ relay   │   │  direct │</div>
+        <div style="text-align:center; color: #8be9fd;">└───────┘    └─────────┘   └─────────┘</div>
+      </div>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Чистое разделение платформенного кода</li>
+          <li>Каждая платформа использует оптимальный транспорт</li>
+          <li>Легче масштабировать на новые платформы</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Больше абстракций и кода на старте</li>
+          <li>Over-engineering для MVP</li>
+          <li>Тестировать нужно каждый адаптер отдельно</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+</div>

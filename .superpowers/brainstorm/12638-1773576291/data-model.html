@@ -1,0 +1,68 @@
+<h2>Секция 3: Модель данных</h2>
+<p class="subtitle">SQLite schema — минимум для MVP</p>
+
+<div style="margin: 20px 0; padding: 20px; background: #1a1a2e; border-radius: 8px; font-family: monospace; font-size: 13px; line-height: 1.7; color: #e0e0e0;">
+<pre style="margin:0; color: #f8f8f2;">
+<span style="color:#6272a4;">-- Локальный профиль пользователя</span>
+<span style="color:#ff79c6;">CREATE TABLE</span> <span style="color:#50fa7b;">identity</span> (
+    id            INTEGER PRIMARY KEY CHECK (id = 1),  <span style="color:#6272a4;">-- singleton</span>
+    seed_phrase   TEXT NOT NULL,          <span style="color:#6272a4;">-- BIP39 encrypted at rest</span>
+    public_key    BLOB NOT NULL,          <span style="color:#6272a4;">-- Ed25519 public key</span>
+    nickname      TEXT NOT NULL,          <span style="color:#6272a4;">-- отображаемое имя</span>
+    created_at    INTEGER NOT NULL        <span style="color:#6272a4;">-- unix timestamp</span>
+);
+
+<span style="color:#6272a4;">-- Контакты (известные пиры)</span>
+<span style="color:#ff79c6;">CREATE TABLE</span> <span style="color:#50fa7b;">contacts</span> (
+    public_key    BLOB PRIMARY KEY,       <span style="color:#6272a4;">-- Ed25519 peer public key</span>
+    nickname      TEXT NOT NULL,          <span style="color:#6272a4;">-- ник пира</span>
+    node_id       BLOB,                  <span style="color:#6272a4;">-- iroh NodeId для reconnect</span>
+    added_at      INTEGER NOT NULL,      <span style="color:#6272a4;">-- unix timestamp</span>
+    last_seen     INTEGER                <span style="color:#6272a4;">-- последний онлайн</span>
+);
+
+<span style="color:#6272a4;">-- Чаты (1-to-1 для MVP)</span>
+<span style="color:#ff79c6;">CREATE TABLE</span> <span style="color:#50fa7b;">chats</span> (
+    id            TEXT PRIMARY KEY,       <span style="color:#6272a4;">-- UUID</span>
+    peer_key      BLOB NOT NULL UNIQUE,   <span style="color:#6272a4;">-- FK → contacts.public_key</span>
+    created_at    INTEGER NOT NULL,
+    last_message  INTEGER,               <span style="color:#6272a4;">-- FK → messages.id (для превью)</span>
+    unread_count  INTEGER DEFAULT 0
+);
+
+<span style="color:#6272a4;">-- Сообщения</span>
+<span style="color:#ff79c6;">CREATE TABLE</span> <span style="color:#50fa7b;">messages</span> (
+    id            TEXT PRIMARY KEY,       <span style="color:#6272a4;">-- UUID (генерируется отправителем)</span>
+    chat_id       TEXT NOT NULL,          <span style="color:#6272a4;">-- FK → chats.id</span>
+    sender_key    BLOB NOT NULL,          <span style="color:#6272a4;">-- кто отправил</span>
+    content       BLOB NOT NULL,          <span style="color:#6272a4;">-- зашифрованный текст (E2E)</span>
+    plaintext     TEXT,                   <span style="color:#6272a4;">-- расшифрованный (только локально)</span>
+    status        TEXT NOT NULL           <span style="color:#6272a4;">-- pending | sent | delivered | read</span>
+                  CHECK (status IN ('pending','sent','delivered','read')),
+    created_at    INTEGER NOT NULL,       <span style="color:#6272a4;">-- timestamp отправки</span>
+    received_at   INTEGER                 <span style="color:#6272a4;">-- timestamp получения</span>
+);
+
+<span style="color:#6272a4;">-- Ожидающие invite-коды</span>
+<span style="color:#ff79c6;">CREATE TABLE</span> <span style="color:#50fa7b;">pending_invites</span> (
+    code          TEXT PRIMARY KEY,       <span style="color:#6272a4;">-- invite код</span>
+    created_at    INTEGER NOT NULL,
+    expires_at    INTEGER                 <span style="color:#6272a4;">-- TTL</span>
+);
+
+<span style="color:#6272a4;">-- Индексы</span>
+<span style="color:#ff79c6;">CREATE INDEX</span> idx_messages_chat ON messages(chat_id, created_at);
+<span style="color:#ff79c6;">CREATE INDEX</span> idx_messages_status ON messages(status) WHERE status = 'pending';
+</pre>
+</div>
+
+<div class="section">
+  <h3>Ключевые решения</h3>
+  <ul>
+    <li><strong>identity — singleton</strong>: один профиль на устройство, CHECK (id = 1)</li>
+    <li><strong>content (BLOB) + plaintext (TEXT)</strong>: храним и шифрованное (для пересылки), и расшифрованное (для поиска/отображения)</li>
+    <li><strong>status flow</strong>: pending → sent → delivered → read</li>
+    <li><strong>pending_invites</strong>: TTL для автоочистки просроченных кодов</li>
+    <li><strong>UUID для messages</strong>: генерируется отправителем, уникален глобально — нет конфликтов между пирами</li>
+  </ul>
+</div>

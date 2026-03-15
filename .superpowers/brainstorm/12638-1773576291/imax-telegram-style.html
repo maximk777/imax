@@ -1,0 +1,1164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>iMax — Telegram-style UI</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-primary: #17212b;
+    --bg-secondary: #0e1621;
+    --bg-hover: #202b36;
+    --bg-active: #2b5278;
+
+    --msg-out: #2b5278;
+    --msg-in: #182533;
+
+    --border: #0e1621;
+    --border-light: rgba(255,255,255,0.06);
+
+    --text-primary: #f5f5f5;
+    --text-secondary: #6d7f8e;
+    --text-name: #6ab3f3;
+    --text-time: rgba(255,255,255,0.35);
+    --text-time-out: rgba(255,255,255,0.45);
+
+    --accent: #6ab3f3;
+    --accent-hover: #79bff5;
+    --green: #4dcd68;
+    --check: rgba(255,255,255,0.45);
+    --check-read: #4dcd68;
+
+    --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --sidebar-w: 320px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    height: 100vh;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    font-size: 14px;
+  }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+
+  .app {
+    display: flex;
+    height: 100vh;
+  }
+
+  /* ═══ SIDEBAR ═══ */
+  .sidebar {
+    width: var(--sidebar-w);
+    background: var(--bg-primary);
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border);
+  }
+
+  .sidebar-header {
+    padding: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 56px;
+  }
+
+  .menu-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.15s;
+  }
+
+  .menu-btn svg { width: 20px; height: 20px; }
+  .menu-btn:hover { background: var(--bg-hover); }
+
+  /* SVG icon base */
+  .icon { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  .search-input {
+    flex: 1;
+    padding: 8px 12px;
+    background: var(--bg-secondary);
+    border: none;
+    border-radius: 20px;
+    color: var(--text-primary);
+    font-family: var(--font);
+    font-size: 13px;
+    outline: none;
+  }
+
+  .search-input::placeholder { color: var(--text-secondary); }
+
+  /* Chat list */
+  .chat-list {
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .chat-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+
+  .chat-item:hover { background: var(--bg-hover); }
+
+  .chat-item.active {
+    background: var(--bg-active);
+  }
+
+  .avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 18px;
+    color: white;
+    flex-shrink: 0;
+    position: relative;
+  }
+
+  .av-purple { background: #8e6cca; }
+  .av-blue { background: #4faadf; }
+  .av-green { background: #5ab555; }
+  .av-orange { background: #d98b3b; }
+  .av-red { background: #d45a5a; }
+  .av-teal { background: #4faaaa; }
+
+  .online-dot {
+    position: absolute;
+    bottom: 1px;
+    right: 1px;
+    width: 12px;
+    height: 12px;
+    background: var(--green);
+    border-radius: 50%;
+    border: 2px solid var(--bg-primary);
+  }
+
+  .chat-item.active .online-dot { border-color: var(--bg-active); }
+
+  .chat-info { flex: 1; min-width: 0; }
+
+  .chat-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 2px;
+  }
+
+  .chat-name {
+    font-weight: 600;
+    font-size: 14px;
+  }
+
+  .chat-time {
+    font-size: 12px;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+  }
+
+  .chat-item.active .chat-time { color: var(--text-time-out); }
+
+  .chat-bottom {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .chat-preview {
+    font-size: 13px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+  }
+
+  .chat-preview .you {
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+
+  .chat-item.active .chat-preview { color: rgba(255,255,255,0.6); }
+
+  .unread-badge {
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    background: var(--accent);
+    color: white;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .check-mark {
+    color: var(--check);
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+
+  .check-mark.read { color: var(--check-read); }
+
+  /* ═══ MAIN CHAT ═══ */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-secondary);
+    position: relative;
+  }
+
+  /* Wallpaper pattern */
+  .main::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.01'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    pointer-events: none;
+  }
+
+  /* Chat header */
+  .chat-header {
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border);
+    min-height: 56px;
+    z-index: 1;
+  }
+
+  .chat-header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+  }
+
+  .header-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 16px;
+    color: white;
+  }
+
+  .header-info h2 {
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .header-status {
+    font-size: 13px;
+    color: var(--accent);
+  }
+
+  .header-actions {
+    display: flex;
+    gap: 4px;
+  }
+
+  .header-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    transition: background 0.15s;
+  }
+
+  .header-btn:hover { background: var(--bg-hover); }
+
+  /* Messages */
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    z-index: 1;
+  }
+
+  .messages-inner {
+    max-width: 720px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 0 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .date-divider {
+    text-align: center;
+    margin: 12px 0;
+  }
+
+  .date-divider span {
+    background: rgba(0,0,0,0.3);
+    color: rgba(255,255,255,0.6);
+    padding: 4px 10px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .message {
+    max-width: 480px;
+  }
+
+  .message.out { align-self: flex-end; }
+  .message.in { align-self: flex-start; }
+
+  .bubble {
+    padding: 7px 11px 6px;
+    font-size: 14px;
+    line-height: 1.45;
+    position: relative;
+    word-wrap: break-word;
+  }
+
+  .message.out .bubble {
+    background: var(--msg-out);
+    border-radius: 12px 12px 4px 12px;
+  }
+
+  .message.in .bubble {
+    background: var(--msg-in);
+    border-radius: 12px 12px 12px 4px;
+  }
+
+  /* Tail on first message in group */
+  .message.out.tail .bubble {
+    border-radius: 12px 4px 4px 12px;
+  }
+
+  .message.in.tail .bubble {
+    border-radius: 4px 12px 12px 4px;
+  }
+
+  .bubble-text {
+    margin-right: 56px;
+  }
+
+  .bubble-meta {
+    float: right;
+    margin-top: 4px;
+    margin-left: 8px;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    position: relative;
+    top: 4px;
+  }
+
+  .bubble-time {
+    font-size: 11px;
+    color: var(--text-time);
+  }
+
+  .message.out .bubble-time { color: var(--text-time-out); }
+
+  .bubble-check {
+    font-size: 12px;
+    color: var(--check);
+  }
+
+  .bubble-check.read { color: var(--check-read); }
+
+  /* Sender name for incoming */
+  .sender-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-name);
+    margin-bottom: 1px;
+  }
+
+  /* Typing */
+  .typing-row {
+    align-self: flex-start;
+    padding: 10px 14px;
+    background: var(--msg-in);
+    border-radius: 4px 12px 12px 4px;
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+
+  .t-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-secondary);
+    animation: tdot 1.4s ease-in-out infinite;
+  }
+  .t-dot:nth-child(2) { animation-delay: 0.15s; }
+  .t-dot:nth-child(3) { animation-delay: 0.3s; }
+
+  @keyframes tdot {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+    30% { transform: translateY(-4px); opacity: 1; }
+  }
+
+  /* Input */
+  .input-area {
+    background: var(--bg-primary);
+    padding: 8px 8px 8px 8px;
+    z-index: 1;
+    border-top: 1px solid var(--border);
+  }
+
+  .input-inner {
+    max-width: 720px;
+    margin: 0 auto;
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+  }
+
+  .attach-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+    transition: color 0.15s;
+  }
+
+  .attach-btn:hover { color: var(--accent); }
+
+  .msg-input {
+    flex: 1;
+    padding: 10px 14px;
+    background: var(--bg-secondary);
+    border: none;
+    border-radius: 20px;
+    color: var(--text-primary);
+    font-family: var(--font);
+    font-size: 14px;
+    outline: none;
+    resize: none;
+    min-height: 40px;
+    max-height: 140px;
+    line-height: 1.35;
+  }
+
+  .msg-input::placeholder { color: var(--text-secondary); }
+
+  .emoji-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+    transition: color 0.15s;
+  }
+
+  .emoji-btn:hover { color: var(--accent); }
+
+  .send-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: var(--accent);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    flex-shrink: 0;
+    transition: all 0.15s;
+  }
+
+  .send-btn:hover { color: var(--accent-hover); }
+
+  /* ═══ ONBOARDING ═══ */
+  .onboarding-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--bg-secondary);
+    z-index: 100;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .onboarding-overlay.visible { display: flex; }
+
+  .onboarding-card {
+    width: 400px;
+    background: var(--bg-primary);
+    border-radius: 12px;
+    overflow: hidden;
+    animation: fadeUp 0.3s ease;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .ob-header {
+    padding: 32px 28px 20px;
+    text-align: center;
+  }
+
+  .ob-logo {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 16px;
+    font-weight: 600;
+    font-size: 24px;
+    color: white;
+  }
+
+  .ob-title {
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+
+  .ob-sub {
+    font-size: 14px;
+    color: var(--text-secondary);
+  }
+
+  .ob-body {
+    padding: 0 28px 28px;
+  }
+
+  .ob-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+  }
+
+  .seed-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    margin-bottom: 20px;
+  }
+
+  .seed-word {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 7px 8px;
+    font-size: 13px;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+
+  .seed-word .n { color: var(--text-secondary); font-size: 11px; min-width: 16px; }
+  .seed-word .w { color: var(--text-primary); font-weight: 500; }
+
+  .nick-input {
+    width: 100%;
+    padding: 12px 14px;
+    background: var(--bg-secondary);
+    border: none;
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-family: var(--font);
+    font-size: 15px;
+    outline: none;
+    margin-bottom: 20px;
+  }
+
+  .nick-input:focus { box-shadow: 0 0 0 2px var(--accent); }
+
+  .create-btn {
+    width: 100%;
+    padding: 13px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-family: var(--font);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .create-btn:hover { background: var(--accent-hover); }
+
+  .restore-link {
+    display: block;
+    text-align: center;
+    margin-top: 16px;
+    font-size: 13px;
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: none;
+  }
+
+  .restore-link:hover { text-decoration: underline; }
+
+  /* ═══ INVITE MODAL ═══ */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 50;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .modal-overlay.visible { display: flex; }
+
+  .modal {
+    width: 380px;
+    background: var(--bg-primary);
+    border-radius: 12px;
+    padding: 24px;
+    animation: fadeUp 0.25s ease;
+  }
+
+  .modal-title {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 20px;
+  }
+
+  .invite-section {
+    background: var(--bg-secondary);
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+
+  .invite-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+    margin-bottom: 8px;
+  }
+
+  .invite-code {
+    font-size: 13px;
+    color: var(--text-primary);
+    word-break: break-all;
+    line-height: 1.5;
+    background: var(--bg-primary);
+    padding: 10px;
+    border-radius: 8px;
+    font-family: monospace;
+  }
+
+  .copy-btn {
+    width: 100%;
+    padding: 10px;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    color: var(--accent);
+    font-family: var(--font);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+    margin-top: 6px;
+  }
+
+  .copy-btn:hover { background: var(--bg-hover); }
+
+  .divider-text {
+    text-align: center;
+    margin: 16px 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+    position: relative;
+  }
+
+  .divider-text::before, .divider-text::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: calc(50% - 40px);
+    height: 1px;
+    background: var(--border-light);
+  }
+
+  .divider-text::before { left: 0; }
+  .divider-text::after { right: 0; }
+
+  .paste-input {
+    width: 100%;
+    padding: 12px 14px;
+    background: var(--bg-secondary);
+    border: none;
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-family: monospace;
+    font-size: 13px;
+    outline: none;
+    margin-bottom: 10px;
+  }
+
+  .paste-input:focus { box-shadow: 0 0 0 2px var(--accent); }
+  .paste-input::placeholder { color: var(--text-secondary); }
+
+  .connect-btn {
+    width: 100%;
+    padding: 12px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-family: var(--font);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .connect-btn:hover { background: var(--accent-hover); }
+
+  /* ═══ SETTINGS ═══ */
+  .settings-section {
+    margin-bottom: 20px;
+  }
+
+  .settings-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .settings-btn {
+    padding: 7px 16px;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    color: var(--accent);
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .settings-btn:hover { background: var(--bg-hover); }
+
+  .view-tabs { display: none; }
+</style>
+</head>
+<body>
+
+<div class="view-tabs">
+  <button class="view-tab active" onclick="showView('chat')">Chat</button>
+  <button class="view-tab" onclick="showView('onboarding')">Onboarding</button>
+  <button class="view-tab" onclick="showView('invite')">New Chat</button>
+  <button class="view-tab" onclick="showView('settings')">Settings</button>
+</div>
+
+<div class="app" id="chatView">
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <button class="menu-btn"><svg class="icon" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+      <input type="text" class="search-input" placeholder="Search">
+    </div>
+
+    <div class="chat-list">
+      <div class="chat-item active">
+        <div class="avatar av-purple">
+          A
+          <div class="online-dot"></div>
+        </div>
+        <div class="chat-info">
+          <div class="chat-top">
+            <span class="chat-name">Alice</span>
+            <span class="chat-time">14:33</span>
+          </div>
+          <div class="chat-bottom">
+            <span class="chat-preview">this is amazing, try it!</span>
+            <div class="unread-badge">3</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-item">
+        <div class="avatar av-blue">
+          B
+          <div class="online-dot"></div>
+        </div>
+        <div class="chat-info">
+          <div class="chat-top">
+            <span class="chat-name">Bob</span>
+            <span class="chat-time">13:10</span>
+          </div>
+          <div class="chat-bottom">
+            <span class="chat-preview"><span class="you">You:</span> see you tomorrow</span>
+            <span class="check-mark read">&#10003;&#10003;</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-item">
+        <div class="avatar av-green">C</div>
+        <div class="chat-info">
+          <div class="chat-top">
+            <span class="chat-name">Charlie</span>
+            <span class="chat-time">Wed</span>
+          </div>
+          <div class="chat-bottom">
+            <span class="chat-preview">thanks for the file</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-item">
+        <div class="avatar av-orange">D</div>
+        <div class="chat-info">
+          <div class="chat-top">
+            <span class="chat-name">Dave</span>
+            <span class="chat-time">Mon</span>
+          </div>
+          <div class="chat-bottom">
+            <span class="chat-preview"><span class="you">You:</span> let me check that</span>
+            <span class="check-mark">&#10003;&#10003;</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-item">
+        <div class="avatar av-red">E</div>
+        <div class="chat-info">
+          <div class="chat-top">
+            <span class="chat-name">Eve</span>
+            <span class="chat-time">Mar 8</span>
+          </div>
+          <div class="chat-bottom">
+            <span class="chat-preview">nice work on the protocol</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-item">
+        <div class="avatar av-teal">F</div>
+        <div class="chat-info">
+          <div class="chat-top">
+            <span class="chat-name">Frank</span>
+            <span class="chat-time">Mar 3</span>
+          </div>
+          <div class="chat-bottom">
+            <span class="chat-preview"><span class="you">You:</span> sounds good</span>
+            <span class="check-mark read">&#10003;&#10003;</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="chat-header">
+      <div class="chat-header-left">
+        <div class="header-avatar av-purple">A</div>
+        <div class="header-info">
+          <h2>Alice</h2>
+          <div class="header-status">online</div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="header-btn"><svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg></button>
+        <button class="header-btn"><svg class="icon" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg></button>
+        <button class="header-btn"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.5" fill="currentColor" stroke="none"/></svg></button>
+      </div>
+    </div>
+
+    <div class="messages">
+      <div class="messages-inner">
+        <div class="date-divider"><span>Today</span></div>
+
+        <div class="message in tail">
+          <div class="bubble">
+            <span class="bubble-text">Have you seen the new iroh release?</span>
+            <span class="bubble-meta">
+              <span class="bubble-time">14:28</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="message in">
+          <div class="bubble">
+            <span class="bubble-text">NAT traversal works out of the box now</span>
+            <span class="bubble-meta">
+              <span class="bubble-time">14:28</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="message out tail">
+          <div class="bubble">
+            <span class="bubble-text">Yeah! No more port forwarding. QUIC handles everything</span>
+            <span class="bubble-meta">
+              <span class="bubble-time">14:29</span>
+              <span class="bubble-check read">&#10003;&#10003;</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="message in tail">
+          <div class="bubble">
+            <span class="bubble-text">We should build something with it. P2P chat maybe?</span>
+            <span class="bubble-meta">
+              <span class="bubble-time">14:30</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="message out tail">
+          <div class="bubble">
+            <span class="bubble-text">Already started. Dioxus for UI, iroh for networking, XChaCha20 E2E encryption. Full Rust stack, zero servers</span>
+            <span class="bubble-meta">
+              <span class="bubble-time">14:31</span>
+              <span class="bubble-check read">&#10003;&#10003;</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="message in tail">
+          <div class="bubble">
+            <span class="bubble-text">No servers at all? How does discovery work?</span>
+            <span class="bubble-meta">
+              <span class="bubble-time">14:32</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="message out tail">
+          <div class="bubble">
+            <span class="bubble-text">Invite codes for first contact, then DHT for reconnection. Zero infrastructure</span>
+            <span class="bubble-meta">
+              <span class="bubble-time">14:32</span>
+              <span class="bubble-check">&#10003;&#10003;</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="message in tail">
+          <div class="bubble">
+            <span class="bubble-text">this is amazing, try it!</span>
+            <span class="bubble-meta">
+              <span class="bubble-time">14:33</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="typing-row">
+          <div class="t-dot"></div>
+          <div class="t-dot"></div>
+          <div class="t-dot"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="input-area">
+      <div class="input-inner">
+        <button class="attach-btn"><svg class="icon" viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg></button>
+        <textarea class="msg-input" placeholder="Message" rows="1"></textarea>
+        <button class="emoji-btn"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg></button>
+        <button class="send-btn"><svg class="icon" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ONBOARDING (simple — just nickname) -->
+<div class="onboarding-overlay" id="onboardingView">
+  <div class="onboarding-card">
+    <div class="ob-header">
+      <div class="ob-logo">iM</div>
+      <div class="ob-title">iMax</div>
+      <div class="ob-sub">P2P Encrypted Messenger</div>
+    </div>
+    <div class="ob-body">
+      <div class="ob-label">Choose your name</div>
+      <input type="text" class="nick-input" value="Max" placeholder="Enter nickname...">
+      <button class="create-btn" onclick="showView('chat')">Start Messaging</button>
+      <a class="restore-link">I have a seed phrase</a>
+    </div>
+  </div>
+</div>
+
+<!-- SETTINGS (seed phrase, account management) -->
+<div class="modal-overlay" id="settingsView">
+  <div class="modal" style="width: 420px;">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+      <div class="modal-title" style="margin-bottom: 0;">Settings</div>
+      <button class="header-btn" onclick="showView('chat')" style="margin: -8px -8px 0 0;"><svg class="icon" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+
+    <!-- Profile section -->
+    <div class="settings-section">
+      <div class="settings-row">
+        <div class="avatar av-blue" style="width: 56px; height: 56px; font-size: 22px;">M</div>
+        <div style="flex: 1;">
+          <div style="font-size: 16px; font-weight: 600; margin-bottom: 2px;">Max</div>
+          <div style="font-size: 13px; color: var(--text-secondary);">online</div>
+        </div>
+        <button class="settings-btn">Edit</button>
+      </div>
+    </div>
+
+    <!-- Seed phrase section -->
+    <div class="settings-section">
+      <div class="ob-label">Seed Phrase</div>
+      <div class="seed-grid" id="seedGrid" style="display: none;">
+        <div class="seed-word"><span class="n">1</span><span class="w">anchor</span></div>
+        <div class="seed-word"><span class="n">2</span><span class="w">breeze</span></div>
+        <div class="seed-word"><span class="n">3</span><span class="w">cipher</span></div>
+        <div class="seed-word"><span class="n">4</span><span class="w">drift</span></div>
+        <div class="seed-word"><span class="n">5</span><span class="w">ember</span></div>
+        <div class="seed-word"><span class="n">6</span><span class="w">flint</span></div>
+        <div class="seed-word"><span class="n">7</span><span class="w">grove</span></div>
+        <div class="seed-word"><span class="n">8</span><span class="w">haven</span></div>
+        <div class="seed-word"><span class="n">9</span><span class="w">ivory</span></div>
+        <div class="seed-word"><span class="n">10</span><span class="w">jade</span></div>
+        <div class="seed-word"><span class="n">11</span><span class="w">knot</span></div>
+        <div class="seed-word"><span class="n">12</span><span class="w">lumen</span></div>
+      </div>
+      <div class="seed-hidden" id="seedHidden">
+        <div style="background: var(--bg-secondary); border-radius: 10px; padding: 16px; text-align: center;">
+          <svg class="icon" viewBox="0 0 24 24" style="width: 24px; height: 24px; color: var(--text-secondary); margin-bottom: 6px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+          <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 10px;">Your seed phrase is hidden for security</div>
+          <button class="settings-btn" onclick="toggleSeed()">Show Seed Phrase</button>
+        </div>
+      </div>
+      <div style="font-size: 12px; color: var(--text-secondary); margin-top: 8px; line-height: 1.4;">Save your seed phrase to restore your account on another device. Never share it with anyone.</div>
+    </div>
+
+    <!-- Other settings -->
+    <div class="settings-section">
+      <div class="ob-label">Encryption</div>
+      <div style="background: var(--bg-secondary); border-radius: 10px; padding: 12px 14px; display: flex; align-items: center; gap: 10px;">
+        <svg class="icon" viewBox="0 0 24 24" style="color: var(--green); flex-shrink: 0;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <div>
+          <div style="font-size: 13px; font-weight: 500;">End-to-end encrypted</div>
+          <div style="font-size: 12px; color: var(--text-secondary);">Messages are encrypted with XChaCha20-Poly1305</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- INVITE MODAL -->
+<div class="modal-overlay" id="inviteView">
+  <div class="modal">
+    <div class="modal-title">New Chat</div>
+    <div class="invite-section">
+      <div class="invite-label">Your invite code</div>
+      <div class="invite-code">imax:7Hf3kQ9xNvB2mW8pYcR4jT6sAe5dLgU1wXoZiKbCn0q</div>
+      <button class="copy-btn">Copy code</button>
+    </div>
+    <div class="divider-text">or</div>
+    <input type="text" class="paste-input" placeholder="Paste invite code...">
+    <button class="connect-btn" onclick="showView('chat')">Connect</button>
+  </div>
+</div>
+
+<script>
+function showView(view) {
+  document.getElementById('chatView').style.display = view === 'chat' ? 'flex' : 'none';
+  document.getElementById('onboardingView').classList.toggle('visible', view === 'onboarding');
+  document.getElementById('inviteView').classList.toggle('visible', view === 'invite');
+  document.getElementById('settingsView').classList.toggle('visible', view === 'settings');
+  document.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
+  if (event && event.target) event.target.classList.add('active');
+}
+
+function toggleSeed() {
+  const grid = document.getElementById('seedGrid');
+  const hidden = document.getElementById('seedHidden');
+  if (grid.style.display === 'none') {
+    grid.style.display = 'grid';
+    hidden.style.display = 'none';
+  } else {
+    grid.style.display = 'none';
+    hidden.style.display = 'block';
+  }
+}
+
+document.querySelector('.msg-input')?.addEventListener('input', function() {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 140) + 'px';
+});
+
+['inviteView', 'settingsView'].forEach(id => {
+  document.getElementById(id)?.addEventListener('click', function(e) {
+    if (e.target === this) showView('chat');
+  });
+});
+</script>
+</body>
+</html>

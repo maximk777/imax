@@ -1,0 +1,92 @@
+<h2>Секция 2: Потоки данных</h2>
+<p class="subtitle">Жизненный цикл сообщения и ключевые сценарии</p>
+
+<div class="section">
+  <h3>Отправка сообщения</h3>
+  <div style="margin: 16px 0; padding: 20px; background: #1a1a2e; border-radius: 8px; font-family: monospace; font-size: 12px; line-height: 1.8; color: #e0e0e0;">
+<pre style="margin:0; color: #f8f8f2;">
+ <span style="color:#ff79c6;">UI</span>                <span style="color:#50fa7b;">ChatManager</span>          <span style="color:#f1fa8c;">Crypto</span>         <span style="color:#8be9fd;">Storage</span>        <span style="color:#bd93f9;">Network</span>
+  │                     │                   │               │               │
+  │  send_message(text) │                   │               │               │
+  │────────────────────▶│                   │               │               │
+  │                     │  encrypt(text,    │               │               │
+  │                     │   peer_pubkey)    │               │               │
+  │                     │──────────────────▶│               │               │
+  │                     │   ciphertext      │               │               │
+  │                     │◀──────────────────│               │               │
+  │                     │                   │               │               │
+  │                     │  save(msg, status=sent)           │               │
+  │                     │──────────────────────────────────▶│               │
+  │                     │                   │               │               │
+  │                     │  send_to_peer(ciphertext)         │               │
+  │                     │──────────────────────────────────────────────────▶│
+  │                     │                   │               │               │
+  │  Event::MessageSent │                   │               │  ack/nack     │
+  │◀────────────────────│◀─────────────────────────────────────────────────│
+  │                     │                   │               │               │
+  │                     │  update(status=delivered)         │               │
+  │                     │──────────────────────────────────▶│               │
+</pre>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Получение сообщения</h3>
+  <div style="margin: 16px 0; padding: 20px; background: #1a1a2e; border-radius: 8px; font-family: monospace; font-size: 12px; line-height: 1.8; color: #e0e0e0;">
+<pre style="margin:0; color: #f8f8f2;">
+ <span style="color:#bd93f9;">Network</span>           <span style="color:#50fa7b;">ChatManager</span>          <span style="color:#f1fa8c;">Crypto</span>         <span style="color:#8be9fd;">Storage</span>        <span style="color:#ff79c6;">UI</span>
+  │                     │                   │               │               │
+  │  incoming(cipher)   │                   │               │               │
+  │────────────────────▶│                   │               │               │
+  │                     │  decrypt(cipher,  │               │               │
+  │                     │   my_privkey)     │               │               │
+  │                     │──────────────────▶│               │               │
+  │                     │   plaintext       │               │               │
+  │                     │◀──────────────────│               │               │
+  │                     │                   │               │               │
+  │                     │  save(msg)        │               │               │
+  │                     │──────────────────────────────────▶│               │
+  │                     │                   │               │               │
+  │                     │  Event::NewMessage│               │               │
+  │                     │──────────────────────────────────────────────────▶│
+  │     send_ack()      │                   │               │               │
+  │◀────────────────────│                   │               │               │
+</pre>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Первое подключение (invite flow)</h3>
+  <div style="margin: 16px 0; padding: 20px; background: #1a1a2e; border-radius: 8px; font-family: monospace; font-size: 12px; line-height: 1.8; color: #e0e0e0;">
+<pre style="margin:0; color: #f8f8f2;">
+ <span style="color:#ff79c6;">Alice</span>                                              <span style="color:#50fa7b;">Bob</span>
+  │                                                    │
+  │  1. generate_invite() → "dchat:abc123..."          │
+  │                                                    │
+  │  2. передаёт код Бобу (любым способом)             │
+  │                        ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─▶│
+  │                                                    │
+  │  3. Bob: accept_invite("dchat:abc123...")           │
+  │                                                    │
+  │◀──────── iroh connection (QUIC) ──────────────────▶│
+  │                                                    │
+  │  4. key exchange (public keys)                     │
+  │◀──────────────────────────────────────────────────▶│
+  │                                                    │
+  │  5. save_contact(bob_pubkey, bob_nick)              │
+  │                     save_contact(alice_pubkey, alice_nick)
+  │                                                    │
+  │  6. Чат создан, можно писать                       │
+  │◀═══════════ encrypted messages ═══════════════════▶│
+</pre>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Оффлайн и переподключение</h3>
+  <ul>
+    <li><strong>Пир оффлайн</strong> — сообщение сохраняется в SQLite со статусом <code>pending</code>. При следующем подключении — автоматическая досылка.</li>
+    <li><strong>Переподключение</strong> — iroh ищет пира через DHT по его NodeId (public key). Не нужен invite повторно.</li>
+    <li><strong>Очередь сообщений</strong> — pending messages синхронизируются при каждом reconnect.</li>
+  </ul>
+</div>

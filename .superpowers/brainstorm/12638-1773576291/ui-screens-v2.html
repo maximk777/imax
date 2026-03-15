@@ -1,0 +1,231 @@
+<h2>Секция 6 (v2): UI — Telegram/Keet стиль</h2>
+<p class="subtitle">Двухпанельный layout: sidebar + chat view</p>
+
+<div class="section">
+  <h3>Основной layout</h3>
+</div>
+
+<!-- Main app mockup -->
+<div style="border: 1px solid #333; border-radius: 12px; overflow: hidden; background: #0e0e10; margin: 20px 0;">
+
+  <!-- Title bar -->
+  <div style="background: #17171b; padding: 8px 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #222;">
+    <div style="display: flex; gap: 6px;">
+      <div style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f56;"></div>
+      <div style="width: 12px; height: 12px; border-radius: 50%; background: #ffbd2e;"></div>
+      <div style="width: 12px; height: 12px; border-radius: 50%; background: #27c93f;"></div>
+    </div>
+    <div style="flex: 1; text-align: center; color: #6272a4; font-size: 12px;">dchat — P2P Encrypted Messenger</div>
+  </div>
+
+  <div style="display: flex; min-height: 480px;">
+
+    <!-- LEFT SIDEBAR -->
+    <div style="width: 300px; border-right: 1px solid #1e1e24; display: flex; flex-direction: column; background: #111114;">
+
+      <!-- Profile + search -->
+      <div style="padding: 12px; border-bottom: 1px solid #1e1e24;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, #8be9fd, #bd93f9); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: bold; color: #0e0e10;">M</div>
+            <span style="color: #f8f8f2; font-size: 14px; font-weight: 500;">Max</span>
+          </div>
+          <div style="display: flex; gap: 12px;">
+            <span style="color: #6272a4; cursor: pointer; font-size: 16px;" title="New Chat">✏️</span>
+            <span style="color: #6272a4; cursor: pointer; font-size: 16px;" title="Settings">⚙️</span>
+          </div>
+        </div>
+        <div style="background: #1a1a20; border-radius: 8px; padding: 8px 12px; color: #44475a; font-size: 13px;">
+          🔍 Search...
+        </div>
+      </div>
+
+      <!-- Chat list -->
+      <div style="flex: 1; overflow-y: auto;">
+        <!-- Active chat -->
+        <div style="padding: 10px 12px; display: flex; align-items: center; gap: 10px; background: #1e1e26; cursor: pointer;">
+          <div style="position: relative;">
+            <div style="width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(135deg, #bd93f9, #ff79c6); display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px; color: #0e0e10;">A</div>
+            <div style="position: absolute; bottom: 0; right: 0; width: 12px; height: 12px; border-radius: 50%; background: #50fa7b; border: 2px solid #1e1e26;"></div>
+          </div>
+          <div style="flex: 1; min-width: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: baseline;">
+              <span style="color: #f8f8f2; font-weight: 500; font-size: 14px;">Alice</span>
+              <span style="color: #6272a4; font-size: 11px;">14:33</span>
+            </div>
+            <div style="color: #8be9fd; font-size: 13px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Check out this P2P thing 🔥</div>
+          </div>
+          <div style="background: #8be9fd; color: #0e0e10; min-width: 20px; height: 20px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; padding: 0 6px;">2</div>
+        </div>
+
+        <!-- Other chats -->
+        <div style="padding: 10px 12px; display: flex; align-items: center; gap: 10px; cursor: pointer; border-bottom: 1px solid #16161a;">
+          <div style="position: relative;">
+            <div style="width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(135deg, #50fa7b, #8be9fd); display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px; color: #0e0e10;">B</div>
+            <div style="position: absolute; bottom: 0; right: 0; width: 12px; height: 12px; border-radius: 50%; background: #50fa7b; border: 2px solid #111114;"></div>
+          </div>
+          <div style="flex: 1; min-width: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: baseline;">
+              <span style="color: #f8f8f2; font-weight: 500; font-size: 14px;">Bob</span>
+              <span style="color: #6272a4; font-size: 11px;">13:10</span>
+            </div>
+            <div style="color: #6272a4; font-size: 13px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">See you tomorrow! 👋</div>
+          </div>
+        </div>
+
+        <div style="padding: 10px 12px; display: flex; align-items: center; gap: 10px; cursor: pointer; border-bottom: 1px solid #16161a; opacity: 0.5;">
+          <div style="width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(135deg, #f1fa8c, #ffb86c); display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px; color: #0e0e10;">C</div>
+          <div style="flex: 1; min-width: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: baseline;">
+              <span style="color: #f8f8f2; font-weight: 500; font-size: 14px;">Charlie</span>
+              <span style="color: #44475a; font-size: 11px;">3 days</span>
+            </div>
+            <div style="color: #44475a; font-size: 13px; margin-top: 2px;">offline</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: CHAT VIEW -->
+    <div style="flex: 1; display: flex; flex-direction: column; background: #0e0e10;">
+
+      <!-- Chat header -->
+      <div style="padding: 12px 20px; border-bottom: 1px solid #1e1e24; display: flex; align-items: center; justify-content: space-between; background: #111114;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="position: relative;">
+            <div style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #bd93f9, #ff79c6); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #0e0e10;">A</div>
+            <div style="position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; border-radius: 50%; background: #50fa7b; border: 2px solid #111114;"></div>
+          </div>
+          <div>
+            <div style="color: #f8f8f2; font-weight: 500; font-size: 14px;">Alice</div>
+            <div style="color: #50fa7b; font-size: 11px;">online • E2E encrypted</div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 16px; color: #6272a4;">
+          <span style="cursor: pointer; font-size: 14px;">🔍</span>
+          <span style="cursor: pointer; font-size: 14px;">⋮</span>
+        </div>
+      </div>
+
+      <!-- Messages area -->
+      <div style="flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto;">
+
+        <!-- Date separator -->
+        <div style="text-align: center; margin: 8px 0;">
+          <span style="background: #1a1a20; color: #6272a4; padding: 4px 12px; border-radius: 10px; font-size: 11px;">Today</span>
+        </div>
+
+        <!-- Incoming -->
+        <div style="display: flex; gap: 8px; max-width: 65%; align-self: flex-start;">
+          <div style="background: #1e1e26; padding: 10px 14px; border-radius: 4px 16px 16px 16px;">
+            <div style="color: #f8f8f2; font-size: 14px; line-height: 1.4;">Hey! Have you tried Keet?</div>
+            <div style="color: #44475a; font-size: 10px; text-align: right; margin-top: 4px;">14:30</div>
+          </div>
+        </div>
+
+        <!-- Outgoing -->
+        <div style="display: flex; gap: 8px; max-width: 65%; align-self: flex-end;">
+          <div style="background: #2d1f5e; padding: 10px 14px; border-radius: 16px 4px 16px 16px;">
+            <div style="color: #f8f8f2; font-size: 14px; line-height: 1.4;">Yeah, pretty cool! Building our own now 😎</div>
+            <div style="color: #7c6daa; font-size: 10px; text-align: right; margin-top: 4px;">14:31 <span style="color: #8be9fd;">✓✓</span></div>
+          </div>
+        </div>
+
+        <!-- Incoming -->
+        <div style="display: flex; gap: 8px; max-width: 65%; align-self: flex-start;">
+          <div style="background: #1e1e26; padding: 10px 14px; border-radius: 4px 16px 16px 16px;">
+            <div style="color: #f8f8f2; font-size: 14px; line-height: 1.4;">Wait, in Rust? With iroh?</div>
+            <div style="color: #44475a; font-size: 10px; text-align: right; margin-top: 4px;">14:32</div>
+          </div>
+        </div>
+
+        <!-- Outgoing -->
+        <div style="display: flex; gap: 8px; max-width: 65%; align-self: flex-end;">
+          <div style="background: #2d1f5e; padding: 10px 14px; border-radius: 16px 4px 16px 16px;">
+            <div style="color: #f8f8f2; font-size: 14px; line-height: 1.4;">Yep! Dioxus for UI, iroh for P2P, E2E encryption. Full stack Rust 🦀</div>
+            <div style="color: #7c6daa; font-size: 10px; text-align: right; margin-top: 4px;">14:33 <span style="color: #8be9fd;">✓✓</span></div>
+          </div>
+        </div>
+
+        <!-- Incoming -->
+        <div style="display: flex; gap: 8px; max-width: 65%; align-self: flex-start;">
+          <div style="background: #1e1e26; padding: 10px 14px; border-radius: 4px 16px 16px 16px;">
+            <div style="color: #f8f8f2; font-size: 14px; line-height: 1.4;">Check out this P2P thing 🔥</div>
+            <div style="color: #44475a; font-size: 10px; text-align: right; margin-top: 4px;">14:33</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input area -->
+      <div style="padding: 12px 20px; border-top: 1px solid #1e1e24; display: flex; align-items: center; gap: 10px; background: #111114;">
+        <span style="color: #6272a4; cursor: pointer; font-size: 18px;">📎</span>
+        <div style="flex: 1; background: #1a1a20; border-radius: 20px; padding: 10px 16px; color: #44475a; font-size: 14px;">
+          Message...
+        </div>
+        <div style="width: 36px; height: 36px; border-radius: 50%; background: #8be9fd; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+          <span style="color: #0e0e10; font-size: 16px;">➤</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Onboarding mockup -->
+<div class="section" style="margin-top: 32px;">
+  <h3>Onboarding (отдельный экран)</h3>
+</div>
+
+<div style="border: 1px solid #333; border-radius: 12px; overflow: hidden; background: #0e0e10; margin: 20px 0; max-width: 420px; margin-left: auto; margin-right: auto;">
+  <div style="background: #17171b; padding: 8px 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #222;">
+    <div style="display: flex; gap: 6px;">
+      <div style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f56;"></div>
+      <div style="width: 12px; height: 12px; border-radius: 50%; background: #ffbd2e;"></div>
+      <div style="width: 12px; height: 12px; border-radius: 50%; background: #27c93f;"></div>
+    </div>
+  </div>
+  <div style="padding: 40px 32px; text-align: center;">
+    <div style="font-size: 36px; font-weight: bold; background: linear-gradient(135deg, #8be9fd, #bd93f9); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 4px;">dchat</div>
+    <div style="color: #6272a4; font-size: 13px; margin-bottom: 32px;">P2P encrypted messenger</div>
+
+    <div style="background: #1a1a20; border-radius: 12px; padding: 20px; margin-bottom: 20px; text-align: left;">
+      <div style="color: #6272a4; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px;">Your seed phrase — write it down!</div>
+      <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+        <span style="background: #111114; color: #f1fa8c; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-family: monospace;">1. apple</span>
+        <span style="background: #111114; color: #f1fa8c; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-family: monospace;">2. banana</span>
+        <span style="background: #111114; color: #f1fa8c; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-family: monospace;">3. cherry</span>
+        <span style="background: #111114; color: #f1fa8c; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-family: monospace;">4. dawn</span>
+        <span style="background: #111114; color: #f1fa8c; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-family: monospace;">5. echo</span>
+        <span style="background: #111114; color: #f1fa8c; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-family: monospace;">6. frost</span>
+        <span style="background: #111114; color: #f1fa8c; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-family: monospace;">7. grape</span>
+        <span style="background: #111114; color: #f1fa8c; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-family: monospace;">8. honey</span>
+        <span style="background: #111114; color: #f1fa8c; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-family: monospace;">9. iris</span>
+        <span style="background: #111114; color: #f1fa8c; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-family: monospace;">10. jazz</span>
+        <span style="background: #111114; color: #f1fa8c; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-family: monospace;">11. kite</span>
+        <span style="background: #111114; color: #f1fa8c; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-family: monospace;">12. luna</span>
+      </div>
+    </div>
+
+    <div style="background: #1a1a20; border-radius: 12px; padding: 16px; margin-bottom: 24px; text-align: left;">
+      <div style="color: #6272a4; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">Choose a nickname</div>
+      <div style="background: #111114; border-radius: 8px; padding: 10px 14px; color: #f8f8f2; font-size: 14px; border: 1px solid #2a2a34;">Max</div>
+    </div>
+
+    <div style="background: linear-gradient(135deg, #8be9fd, #bd93f9); color: #0e0e10; padding: 12px; border-radius: 10px; font-weight: 600; cursor: pointer; font-size: 14px; margin-bottom: 12px;">
+      Create Identity
+    </div>
+    <div style="color: #6272a4; font-size: 12px; cursor: pointer;">I have a seed phrase → Restore</div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Изменения от v1</h3>
+  <ul>
+    <li><strong>Two-panel layout</strong> — sidebar с чатами слева, переписка справа (как Telegram/Keet)</li>
+    <li><strong>Тёмная тема</strong> — близкая к Keet: почти чёрный фон, фиолетовые акценты</li>
+    <li><strong>Исходящие — фиолетовые бабблы</strong>, входящие — тёмно-серые</li>
+    <li><strong>Gradient аватары</strong> — вместо однотонных</li>
+    <li><strong>Inline online-статус</strong> — зелёная точка на аватаре</li>
+    <li><strong>"E2E encrypted"</strong> — отображается в шапке чата</li>
+    <li><strong>Rounded input</strong> — pill-shaped поле ввода с кнопкой send</li>
+  </ul>
+</div>
