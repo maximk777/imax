@@ -52,6 +52,9 @@ impl IrohNode {
         send.finish()
             .map_err(|e| crate::Error::Network(format!("finish error: {e}")))?;
 
+        // Wait for peer to receive all data before dropping connection
+        let _ = send.stopped().await;
+
         Ok(())
     }
 
@@ -75,6 +78,9 @@ impl IrohNode {
 
         send.finish()
             .map_err(|e| crate::Error::Network(format!("finish error: {e}")))?;
+
+        // Wait for peer to receive all data before dropping connection
+        let _ = send.stopped().await;
 
         Ok(())
     }
