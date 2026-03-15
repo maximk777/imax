@@ -19,7 +19,7 @@ pub fn InviteModal() -> Element {
     let invite_code = INVITE_CODE.read().clone();
     let node_ready = *NODE_STARTED.read();
     let mut paste_input = use_signal(String::new);
-    let mut copied = use_signal(|| false);
+    let _copied = use_signal(|| false);
     let mut connect_status = use_signal(String::new);
     let mut connecting = use_signal(|| false);
 
@@ -44,19 +44,18 @@ pub fn InviteModal() -> Element {
                     p { class: "modal-label", "Your invite code" }
 
                     if node_ready {
-                        // Node is online — show real invite code
-                        div { class: "modal-code-box",
-                            code { class: "modal-code", "{invite_code}" }
-                        }
-                        button {
-                            class: "modal-btn-secondary",
+                        // Node is online — show real invite code in a selectable input
+                        input {
+                            class: "modal-code-input",
+                            r#type: "text",
+                            readonly: true,
+                            value: "{invite_code}",
                             onclick: move |_| {
-                                let code = INVITE_CODE.read().clone();
-                                eval(&format!(r#"navigator.clipboard.writeText("{code}")"#));
-                                *copied.write() = true;
+                                // Select all text on click for easy Cmd+C
+                                eval(r#"document.querySelector('.modal-code-input').select()"#);
                             },
-                            if *copied.read() { "Copied!" } else { "Copy code" }
                         }
+                        p { class: "modal-hint", "Click to select, then Cmd+C to copy" }
                     } else {
                         // Node still connecting
                         div { class: "modal-connecting",
