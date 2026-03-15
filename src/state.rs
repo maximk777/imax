@@ -6,6 +6,29 @@ use tokio::sync::mpsc;
 use iroh::EndpointId;
 use imax_core::network::node::IrohNode;
 
+// ── UI update channel (tokio task → Dioxus runtime) ──
+
+/// Events sent from the P2P background task to the Dioxus UI coroutine.
+#[derive(Debug, Clone)]
+pub enum UiUpdate {
+    PeerConnected {
+        chat_id: String,
+        peer_name: String,
+        public_key_byte: u8,
+    },
+    MessageReceived {
+        chat_id: String,
+        message: Message,
+    },
+    ChatPreviewUpdate {
+        chat_id: String,
+        last_message: String,
+    },
+}
+
+pub static UI_UPDATE_TX: OnceLock<mpsc::UnboundedSender<UiUpdate>> = OnceLock::new();
+pub static UI_UPDATE_RX: OnceLock<Mutex<Option<mpsc::UnboundedReceiver<UiUpdate>>>> = OnceLock::new();
+
 /// A chat preview shown in the sidebar.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChatPreview {
@@ -86,6 +109,13 @@ pub fn get_peer_id(chat_id: &str) -> Option<EndpointId> {
 /// Hex-encode a byte slice (e.g. `&[0xab, 0xcd]` → `"abcd"`).
 pub fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Initialize the UI update channel. Call once at startup.
+pub fn init_ui_channel() {
+    let (tx, rx) = mpsc::unbounded_channel::<UiUpdate>();
+    let _ = UI_UPDATE_TX.set(tx);
+    let _ = UI_UPDATE_RX.set(Mutex::new(Some(rx)));
 }
 
 /// Append a message to the per-chat store and, if this chat is currently active, also update MESSAGES for the UI.

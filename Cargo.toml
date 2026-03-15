@@ -7,6 +7,10 @@ name = "imax"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "p2p-debug"
+path = "src/bin/p2p_debug.rs"
+
 [dependencies]
 imax-core = { path = "crates/imax-core" }
 dioxus = { version = "0.7", features = ["desktop"] }

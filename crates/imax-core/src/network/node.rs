@@ -1,4 +1,5 @@
 use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
+use std::time::Duration;
 use crate::Result;
 use crate::network::protocol::{self, WireMessage};
 
@@ -48,12 +49,13 @@ impl IrohNode {
             .await
             .map_err(|e| crate::Error::Network(format!("write error: {e}")))?;
 
-        // Signal end of stream
+        // Signal end of stream — QUIC guarantees delivery of all data up to FIN
         send.finish()
             .map_err(|e| crate::Error::Network(format!("finish error: {e}")))?;
 
-        // Wait for peer to receive all data before dropping connection
-        let _ = send.stopped().await;
+        // Wait for receiver to signal it processed the stream (via stop()),
+        // with a timeout so we don't hang forever if the peer misbehaves.
+        let _ = tokio::time::timeout(Duration::from_secs(5), send.stopped()).await;
 
         Ok(())
     }
@@ -79,8 +81,9 @@ impl IrohNode {
         send.finish()
             .map_err(|e| crate::Error::Network(format!("finish error: {e}")))?;
 
-        // Wait for peer to receive all data before dropping connection
-        let _ = send.stopped().await;
+        // Wait for receiver to signal it processed the stream (via stop()),
+        // with a timeout so we don't hang forever if the peer misbehaves.
+        let _ = tokio::time::timeout(Duration::from_secs(5), send.stopped()).await;
 
         Ok(())
     }
@@ -113,6 +116,10 @@ impl IrohNode {
             .read_to_end(16 * 1024 * 1024)
             .await
             .map_err(|e| crate::Error::Network(format!("read error: {e}")))?;
+
+        // Signal sender that we're done reading — this unblocks send.stopped()
+        // stop() on RecvStream sends STOP_SENDING to the peer's SendStream
+        let _ = recv.stop(0u32.into());
 
         // Decode the framed message
         let (msg, _consumed) = protocol::decode_frame(&bytes)?
@@ -167,22 +174,11 @@ mod tests {
         // Get node_b's full address so node_a can connect without relay lookup
         let node_b_addr = node_b.endpoint().addr();
 
-        // Node A connects and sends a Hello to Node B
-        // Spawn the sender
+        // Node A sends Hello to Node B using send_to_addr (which now waits for stopped())
         let msg_clone = msg_to_send.clone();
         let sender = tokio::spawn(async move {
-            let conn = node_a
-                .endpoint()
-                .connect(node_b_addr, ALPN)
-                .await
-                .expect("connect failed");
-
-            let (mut send, _recv) = conn.open_bi().await.expect("open_bi failed");
-            let encoded = protocol::encode(&msg_clone).expect("encode failed");
-            send.write_all(&encoded).await.expect("write failed");
-            send.finish().expect("finish failed");
-            // Keep connection alive until receiver reads
-            (node_a, conn)
+            node_a.send_to_addr(node_b_addr, &msg_clone).await.expect("send_to_addr failed");
+            node_a
         });
 
         // Node B accepts one incoming connection and reads the message
@@ -192,7 +188,7 @@ mod tests {
         assert_eq!(from_id, node_a_id, "sender should be node_a");
 
         // Clean up
-        let (node_a, _conn) = sender.await.expect("sender task panicked");
+        let node_a = sender.await.expect("sender task panicked");
         node_a.shutdown().await.expect("node_a shutdown failed");
         node_b.shutdown().await.expect("node_b shutdown failed");
 

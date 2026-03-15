@@ -94,7 +94,7 @@ pub fn Onboarding() -> Element {
                             // Store the node globally and start the shared message loop
                             let node = Arc::new(new_node);
                             let _ = IROH_NODE.set(node.clone());
-                            start_message_loop(node);
+                            start_message_loop(node, sk_bytes, name.clone());
                         }
                         Err(e) => {
                             println!("[imax] Failed to start node: {e}");

@@ -1,21 +1,24 @@
 use std::sync::{Arc, OnceLock};
 use iroh::SecretKey;
-use imax_core::network::node::{IrohNode, ALPN};
-use imax_core::network::protocol::{self, WireMessage};
+use imax_core::network::node::IrohNode;
+use imax_core::network::protocol::WireMessage;
 use imax_core::network::discovery::{InviteCode, InvitePayload};
 use dioxus::prelude::ReadableExt;
 use uuid::Uuid;
 use crate::state::{
-    CHATS, NICKNAME, SIGNING_KEY_BYTES, CONNECTION_STATUS, NODE_STARTED,
-    INVITE_CODE, OUTGOING_TX, IROH_NODE, ChatPreview, Message, OutgoingMessage,
-    get_peer_id, register_peer, add_message, hex,
+    NICKNAME, SIGNING_KEY_BYTES, CONNECTION_STATUS, NODE_STARTED,
+    INVITE_CODE, OUTGOING_TX, IROH_NODE, Message, OutgoingMessage, UiUpdate,
+    UI_UPDATE_TX, get_peer_id, register_peer, hex,
 };
 
 static MESSAGE_LOOP_STARTED: OnceLock<()> = OnceLock::new();
 
 /// Start the shared accept + outgoing message loop on the global node.
 /// Safe to call multiple times — only the first call starts the loop.
-pub fn start_message_loop(node: Arc<IrohNode>) {
+///
+/// `sk_bytes` and `nickname` are captured from GlobalSignals before this call
+/// so the spawned tokio task never touches Dioxus runtime.
+pub fn start_message_loop(node: Arc<IrohNode>, sk_bytes: [u8; 32], nickname: String) {
     if MESSAGE_LOOP_STARTED.set(()).is_err() {
         return; // already started
     }
@@ -34,20 +37,37 @@ pub fn start_message_loop(node: Arc<IrohNode>) {
                         Ok((msg, from_id)) => {
                             println!("[imax] Incoming from {:?}: {:?}", from_id, msg);
                             match msg {
-                                WireMessage::Hello { nickname, public_key, .. } => {
+                                WireMessage::Hello { nickname: peer_nick, public_key, .. } => {
                                     let id_bytes = from_id.as_bytes();
                                     let chat_id = format!("chat-{}", hex(&id_bytes[..4]));
+
+                                    // Check if peer is already registered (prevents Hello loop)
+                                    let already_known = {
+                                        get_peer_id(&chat_id).is_some()
+                                    };
+
                                     // Register peer ID — iroh caches their transport addresses
                                     register_peer(chat_id.clone(), from_id);
-                                    let exists = CHATS.read().iter().any(|c| c.id == chat_id);
-                                    if !exists {
-                                        CHATS.write().push(ChatPreview {
-                                            id: chat_id,
-                                            peer_name: nickname,
-                                            last_message: "Connected!".into(),
-                                            time: "now".into(),
-                                            avatar_color: (public_key[0] as usize) % 4,
+
+                                    // Notify UI via channel (not direct GlobalSignal access)
+                                    if let Some(tx) = UI_UPDATE_TX.get() {
+                                        let _ = tx.send(UiUpdate::PeerConnected {
+                                            chat_id: chat_id.clone(),
+                                            peer_name: peer_nick,
+                                            public_key_byte: public_key[0],
                                         });
+                                    }
+
+                                    // Auto-respond with our Hello if this is a new peer
+                                    if !already_known {
+                                        let hello_back = WireMessage::Hello {
+                                            public_key: sk_bytes,
+                                            nickname: nickname.clone(),
+                                            protocol_version: 1,
+                                        };
+                                        if let Err(e) = node.send_to_peer(from_id, &hello_back).await {
+                                            println!("[imax] Failed to send Hello back: {e}");
+                                        }
                                     }
                                 }
                                 WireMessage::ChatMessage { id, ciphertext, timestamp, .. } => {
@@ -61,22 +81,24 @@ pub fn start_message_loop(node: Arc<IrohNode>) {
                                         format!("chat-{}", hex(&id_bytes[..4]))
                                     };
 
-                                    // Update the chat preview last_message
-                                    {
+                                    // Notify UI via channel
+                                    if let Some(tx) = UI_UPDATE_TX.get() {
                                         let preview = content_preview(&content);
-                                        let mut chats = CHATS.write();
-                                        if let Some(c) = chats.iter_mut().find(|c| c.id == chat_id) {
-                                            c.last_message = preview;
-                                        }
+                                        let _ = tx.send(UiUpdate::ChatPreviewUpdate {
+                                            chat_id: chat_id.clone(),
+                                            last_message: preview,
+                                        });
+                                        let _ = tx.send(UiUpdate::MessageReceived {
+                                            chat_id,
+                                            message: Message {
+                                                id: msg_id,
+                                                content,
+                                                is_mine: false,
+                                                time: ts,
+                                                status: "received".into(),
+                                            },
+                                        });
                                     }
-
-                                    add_message(&chat_id, Message {
-                                        id: msg_id,
-                                        content,
-                                        is_mine: false,
-                                        time: ts,
-                                        status: "received".into(),
-                                    });
                                 }
                                 _ => {
                                     println!("[imax] Unhandled message type from {:?}", from_id);
@@ -147,6 +169,7 @@ fn generate_invite_code(node: &IrohNode, sk_bytes: &[u8; 32]) {
 
 pub async fn run_test_p2p() -> Result<(), String> {
     let sk_bytes = *SIGNING_KEY_BYTES.read();
+    let nickname = NICKNAME.read().clone();
 
     // Reuse global node if it exists, otherwise create one
     let node = if let Some(existing) = IROH_NODE.get() {
@@ -184,53 +207,9 @@ pub async fn run_test_p2p() -> Result<(), String> {
     *CONNECTION_STATUS.write() = "online".to_string();
     *NODE_STARTED.write() = true;
 
-    // Quick self-test with Bob (separate identity — no conflict)
-    let bob_key = SecretKey::from_bytes(&[42u8; 32]);
-    let bob_node = IrohNode::new(bob_key).await.map_err(|e| e.to_string())?;
-    bob_node.endpoint().online().await;
-    let bob_addr = bob_node.endpoint().addr();
-
-    let nickname = NICKNAME.read().clone();
-    let hello = WireMessage::Hello {
-        public_key: sk_bytes,
-        nickname: nickname.clone(),
-        protocol_version: 1,
-    };
-
-    let bob_accept = tokio::spawn(async move {
-        match bob_node.accept_one().await {
-            Ok((msg, _)) => { println!("[test-bob] Got: {:?}", msg); Some(()) }
-            Err(e) => { println!("[test-bob] Error: {e}"); None }
-        }
-    });
-
-    let conn = node.endpoint()
-        .connect(bob_addr, ALPN).await
-        .map_err(|e| format!("connect: {e}"))?;
-    let (mut send, _) = conn.open_bi().await.map_err(|e| format!("open_bi: {e}"))?;
-    let encoded = protocol::encode(&hello).map_err(|e| format!("encode: {e}"))?;
-    send.write_all(&encoded).await.map_err(|e| format!("write: {e}"))?;
-    send.finish().map_err(|e| format!("finish: {e}"))?;
-
-    let ok = bob_accept.await.map_err(|e| format!("bob: {e}"))?.is_some();
-    drop(conn);
-
-    if ok {
-        let exists = CHATS.read().iter().any(|c| c.id == "chat-test-bob");
-        if !exists {
-            CHATS.write().push(ChatPreview {
-                id: "chat-test-bob".into(),
-                peer_name: "Bob (test peer)".into(),
-                last_message: "P2P connected!".into(),
-                time: "now".into(),
-                avatar_color: 1,
-            });
-        }
-        println!("[test] Self-test passed!");
-    }
-
     // Start the shared message loop (no-op if already started)
-    start_message_loop(node);
+    // Pass captured values so the spawned task never touches Dioxus runtime
+    start_message_loop(node, sk_bytes, nickname);
 
     Ok(())
 }
