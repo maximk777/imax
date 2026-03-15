@@ -2,7 +2,7 @@ use iroh::SecretKey;
 use imax_core::network::node::{IrohNode, ALPN};
 use imax_core::network::protocol::{self, WireMessage};
 use dioxus::prelude::ReadableExt;
-use crate::state::{CHATS, NICKNAME, SIGNING_KEY_BYTES, CONNECTION_STATUS, ChatPreview};
+use crate::state::{CHATS, NICKNAME, SIGNING_KEY_BYTES, CONNECTION_STATUS, NODE_STARTED, ChatPreview};
 
 pub async fn run_test_p2p() -> Result<(), String> {
     let sk_bytes = *SIGNING_KEY_BYTES.read();
@@ -79,6 +79,7 @@ pub async fn run_test_p2p() -> Result<(), String> {
             CHATS.write().push(chat);
         }
         *CONNECTION_STATUS.write() = "online".to_string();
+        *NODE_STARTED.write() = true;
         println!("[test] P2P test successful! Bob received Hello.");
     } else {
         return Err("Bob did not receive the Hello".into());
