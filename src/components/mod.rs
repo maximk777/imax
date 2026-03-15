@@ -5,3 +5,4 @@ pub mod message_bubble;
 pub mod message_input;
 pub mod settings_modal;
 pub mod sidebar;
+pub mod test_p2p;

@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 use crate::state::{ACTIVE_CHAT_ID, CHATS, MESSAGES, NICKNAME, SHOW_INVITE_MODAL, SHOW_SETTINGS_MODAL, CONNECTION_STATUS};
+use crate::components::test_p2p::run_test_p2p;
 
 const AVATAR_COLORS: [&str; 4] = ["blue", "green", "purple", "orange"];
 
@@ -8,6 +9,7 @@ pub fn Sidebar() -> Element {
     let chats = CHATS.read().clone();
     let nickname = NICKNAME.read().clone();
     let status = CONNECTION_STATUS.read().clone();
+    let mut test_status = use_signal(|| String::new());
 
     // Map status string to a CSS modifier class and display label.
     let (status_class, status_label) = match status.as_str() {
@@ -52,6 +54,31 @@ pub fn Sidebar() -> Element {
             div { class: "sidebar-status-bar",
                 span { class: "{status_class}" }
                 span { class: "sidebar-status-label", "{status_label}" }
+            }
+
+            // Test P2P button
+            button {
+                class: "sidebar-test-btn",
+                onclick: move |_| {
+                    test_status.set("Creating test peer...".into());
+                    spawn(async move {
+                        match run_test_p2p().await {
+                            Ok(_) => test_status.set("Test peer connected!".into()),
+                            Err(e) => test_status.set(format!("Test failed: {e}")),
+                        }
+                    });
+                },
+                "Test P2P"
+            }
+            {
+                let ts = test_status.read().clone();
+                if !ts.is_empty() {
+                    rsx! {
+                        div { class: "sidebar-test-status", "{ts}" }
+                    }
+                } else {
+                    rsx! {}
+                }
             }
 
             // Chat list
