@@ -12,3 +12,4 @@ imax-core = { path = "crates/imax-core" }
 dioxus = { version = "0.7", features = ["desktop"] }
 tokio = { version = "1", features = ["full"] }
 bs58 = "0.5"
+iroh = "0.96"

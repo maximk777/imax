@@ -1,4 +1,4 @@
-use iroh::{Endpoint, EndpointId, SecretKey};
+use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
 use crate::Result;
 use crate::network::protocol::{self, WireMessage};
 
@@ -49,6 +49,30 @@ impl IrohNode {
             .map_err(|e| crate::Error::Network(format!("write error: {e}")))?;
 
         // Signal end of stream
+        send.finish()
+            .map_err(|e| crate::Error::Network(format!("finish error: {e}")))?;
+
+        Ok(())
+    }
+
+    /// Send a WireMessage to a peer using a full EndpointAddr (includes relay + direct addrs).
+    pub async fn send_to_addr(&self, addr: EndpointAddr, msg: &WireMessage) -> Result<()> {
+        let conn = self
+            .endpoint
+            .connect(addr, ALPN)
+            .await
+            .map_err(|e| crate::Error::Network(format!("connect error: {e}")))?;
+
+        let (mut send, _recv) = conn
+            .open_bi()
+            .await
+            .map_err(|e| crate::Error::Network(format!("open_bi error: {e}")))?;
+
+        let encoded = protocol::encode(msg)?;
+        send.write_all(&encoded)
+            .await
+            .map_err(|e| crate::Error::Network(format!("write error: {e}")))?;
+
         send.finish()
             .map_err(|e| crate::Error::Network(format!("finish error: {e}")))?;
 

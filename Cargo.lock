@@ -2788,6 +2788,7 @@ dependencies = [
  "bs58",
  "dioxus",
  "imax-core",
+ "iroh",
  "tokio",
 ]
 

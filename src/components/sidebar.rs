@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use crate::state::{ACTIVE_CHAT_ID, CHATS, MESSAGES, NICKNAME, SHOW_INVITE_MODAL, SHOW_SETTINGS_MODAL};
+use crate::state::{ACTIVE_CHAT_ID, CHATS, MESSAGES, NICKNAME, SHOW_INVITE_MODAL, SHOW_SETTINGS_MODAL, CONNECTION_STATUS};
 
 const AVATAR_COLORS: [&str; 4] = ["blue", "green", "purple", "orange"];
 
@@ -7,6 +7,16 @@ const AVATAR_COLORS: [&str; 4] = ["blue", "green", "purple", "orange"];
 pub fn Sidebar() -> Element {
     let chats = CHATS.read().clone();
     let nickname = NICKNAME.read().clone();
+    let status = CONNECTION_STATUS.read().clone();
+
+    // Map status string to a CSS modifier class and display label.
+    let (status_class, status_label) = match status.as_str() {
+        "online" => ("status-dot online", "online"),
+        "connecting" => ("status-dot connecting", "connecting"),
+        s if s.starts_with("connected") => ("status-dot online", "connected"),
+        s if s.starts_with("error") => ("status-dot error", "error"),
+        _ => ("status-dot offline", "offline"),
+    };
 
     rsx! {
         div { class: "sidebar",
@@ -36,6 +46,12 @@ pub fn Sidebar() -> Element {
                         "\u{2699}"
                     }
                 }
+            }
+
+            // Connection status footer
+            div { class: "sidebar-status-bar",
+                span { class: "{status_class}" }
+                span { class: "sidebar-status-label", "{status_label}" }
             }
 
             // Chat list
