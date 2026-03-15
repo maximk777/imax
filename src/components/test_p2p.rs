@@ -1,8 +1,9 @@
 use iroh::SecretKey;
 use imax_core::network::node::{IrohNode, ALPN};
 use imax_core::network::protocol::{self, WireMessage};
+use imax_core::network::discovery::{InviteCode, InvitePayload};
 use dioxus::prelude::ReadableExt;
-use crate::state::{CHATS, NICKNAME, SIGNING_KEY_BYTES, CONNECTION_STATUS, NODE_STARTED, ChatPreview};
+use crate::state::{CHATS, NICKNAME, SIGNING_KEY_BYTES, CONNECTION_STATUS, NODE_STARTED, INVITE_CODE, ChatPreview};
 
 pub async fn run_test_p2p() -> Result<(), String> {
     let sk_bytes = *SIGNING_KEY_BYTES.read();
@@ -78,6 +79,25 @@ pub async fn run_test_p2p() -> Result<(), String> {
             };
             CHATS.write().push(chat);
         }
+        // Generate real invite code from our node before shutdown
+        let addr = our_node.endpoint().addr();
+        let node_id = our_node.node_id();
+        let addrs: Vec<std::net::SocketAddr> = addr.ip_addrs().cloned().collect();
+        let relay_url = addr.relay_urls().next().map(|u| u.to_string());
+        let expires = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() + 86400;
+        let payload = InvitePayload {
+            public_key: sk_bytes,
+            node_id: *node_id.as_bytes(),
+            addrs,
+            relay_url,
+            expires,
+        };
+        if let Ok(code) = InviteCode::encode(&payload) {
+            println!("[test] Invite code: {} ({} chars)", &code.0[..20], code.0.len());
+            *INVITE_CODE.write() = code.0;
+        }
+
         *CONNECTION_STATUS.write() = "online".to_string();
         *NODE_STARTED.write() = true;
         println!("[test] P2P test successful! Bob received Hello.");
