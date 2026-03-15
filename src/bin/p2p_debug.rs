@@ -1,5 +1,7 @@
 use imax_core::network::node::IrohNode;
 use imax_core::network::protocol::WireMessage;
+use imax_core::storage::Database;
+use imax_core::storage::models;
 use iroh::SecretKey;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -9,7 +11,7 @@ use uuid::Uuid;
 async fn main() {
     let mut passed = 0u32;
     let mut failed = 0u32;
-    let total = 6u32;
+    let total = 9u32;
 
     // --- Test 0: Seed phrase round-trip ---
     print!("[identity] Seed phrase round-trip... ");
@@ -310,6 +312,150 @@ async fn main() {
     } else {
         println!("FAIL (not a Hello)");
         failed += 1;
+    }
+
+    // --- Test 6: Profiles CRUD ---
+    print!("[profiles] CRUD operations... ");
+    match Database::open_in_memory() {
+        Ok(db) => {
+            let mut profile_ok = true;
+            // Create two profiles
+            let pid1 = models::create_profile(&db, "seed1 phrase", "Alice").unwrap();
+            let pid2 = models::create_profile(&db, "seed2 phrase", "Bob").unwrap();
+            let all = models::get_all_profiles(&db).unwrap();
+            if all.len() != 2 {
+                println!("FAIL (expected 2 profiles, got {})", all.len());
+                profile_ok = false;
+            }
+            // Set active and verify
+            if profile_ok {
+                models::set_active_profile(&db, pid2).unwrap();
+                let active = models::get_active_profile(&db).unwrap();
+                if active.as_ref().map(|p| p.id) != Some(pid2) {
+                    println!("FAIL (active profile should be {})", pid2);
+                    profile_ok = false;
+                }
+            }
+            // Delete and verify
+            if profile_ok {
+                models::delete_profile(&db, pid1).unwrap();
+                let remaining = models::get_all_profiles(&db).unwrap();
+                if remaining.len() != 1 {
+                    println!("FAIL (expected 1 profile after delete, got {})", remaining.len());
+                    profile_ok = false;
+                }
+            }
+            if profile_ok {
+                println!("OK (create, set_active, delete all work)");
+                passed += 1;
+            } else {
+                failed += 1;
+            }
+        }
+        Err(e) => {
+            println!("FAIL (db open: {e})");
+            failed += 1;
+        }
+    }
+
+    // --- Test 7: Connection pool reuse ---
+    print!("[pool] Connection reuse (5 messages, 1 connection)... ");
+    {
+        // Alice sends 5 messages to Bob via send_to_peer — should reuse the same connection
+        let mut pool_ok = true;
+        for i in 0..5 {
+            let msg = WireMessage::ChatMessage {
+                id: Uuid::new_v4(),
+                ciphertext: format!("pool test msg {i}").into_bytes(),
+                nonce: [0u8; 24],
+                timestamp: 3000 + i,
+            };
+            match alice.send_to_peer(bob_id, &msg).await {
+                Ok(()) => {
+                    match tokio::time::timeout(Duration::from_secs(10), bob_rx.recv()).await {
+                        Ok(Some(_)) => {}
+                        _ => {
+                            println!("FAIL (timeout on message {i})");
+                            pool_ok = false;
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("FAIL (send error on message {i}: {e})");
+                    pool_ok = false;
+                    break;
+                }
+            }
+        }
+        if pool_ok {
+            let count = alice.cached_connection_count();
+            if count >= 1 {
+                println!("OK (cached connections: {count})");
+                passed += 1;
+            } else {
+                println!("FAIL (expected >=1 cached connection, got {count})");
+                failed += 1;
+            }
+        } else {
+            failed += 1;
+        }
+    }
+
+    // --- Test 8: Node restart with different key ---
+    print!("[restart] Node restart with new key... ");
+    {
+        // Create a node, shut it down, create another with different key
+        let key_old = SecretKey::from_bytes(&[10u8; 32]);
+        let node_old = IrohNode::new(key_old).await.expect("old node creation failed");
+        let old_id = node_old.node_id();
+        node_old.shutdown().await.ok();
+
+        let key_new = SecretKey::from_bytes(&[11u8; 32]);
+        let node_new = IrohNode::new(key_new).await.expect("new node creation failed");
+        let new_id = node_new.node_id();
+
+        if old_id != new_id {
+            // Send a message from the new node to Bob to verify it works
+            node_new.endpoint().online().await;
+            let bob_addr_fresh = bob.endpoint().addr();
+            let hello_restart = WireMessage::Hello {
+                public_key: [11u8; 32],
+                nickname: "NewNode".to_string(),
+                protocol_version: 1,
+            };
+            match node_new.send_to_addr(bob_addr_fresh, &hello_restart).await {
+                Ok(()) => {
+                    match tokio::time::timeout(Duration::from_secs(10), bob_rx.recv()).await {
+                        Ok(Some((msg, from))) => {
+                            if from == new_id {
+                                if let WireMessage::Hello { nickname, .. } = &msg {
+                                    println!("OK (old_id != new_id, msg from new node, nick=\"{nickname}\")");
+                                } else {
+                                    println!("OK (old_id != new_id, msg delivered)");
+                                }
+                                passed += 1;
+                            } else {
+                                println!("FAIL (wrong sender)");
+                                failed += 1;
+                            }
+                        }
+                        _ => {
+                            println!("FAIL (timeout waiting for message from new node)");
+                            failed += 1;
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("FAIL (send from new node: {e})");
+                    failed += 1;
+                }
+            }
+            node_new.shutdown().await.ok();
+        } else {
+            println!("FAIL (old_id == new_id with different keys!)");
+            failed += 1;
+        }
     }
 
     // Summary

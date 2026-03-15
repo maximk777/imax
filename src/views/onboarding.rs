@@ -38,6 +38,9 @@ pub fn Onboarding() -> Element {
                     pid
                 };
                 *ACTIVE_PROFILE_ID.write() = profile_id;
+                if is_adding {
+                    crate::state::shutdown_node();
+                }
                 *ADDING_PROFILE.write() = false;
 
                 start_node(sk_bytes, pubkey_bytes, seed_phrase, name);
@@ -81,6 +84,9 @@ pub fn Onboarding() -> Element {
                     pid
                 };
                 *ACTIVE_PROFILE_ID.write() = profile_id;
+                if is_adding {
+                    crate::state::shutdown_node();
+                }
                 *ADDING_PROFILE.write() = false;
 
                 start_node(sk_bytes, pubkey_bytes, seed_phrase, name);

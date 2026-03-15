@@ -155,8 +155,12 @@ pub fn shutdown_node() {
     NODE_CANCEL.lock().unwrap().cancel();
     // 2. Close outgoing channel
     *OUTGOING_TX.lock().unwrap() = None;
-    // 3. Drop iroh node
-    IROH_NODE.lock().unwrap().take();
+    // 3. Shutdown iroh node (closes QUIC connections, unblocks accept loops)
+    if let Some(node) = IROH_NODE.lock().unwrap().take() {
+        tokio::spawn(async move {
+            node.shutdown().await.ok();
+        });
+    }
     // 4. Clear peers
     PEER_IDS.lock().unwrap().clear();
     // 5. Reset signals
@@ -285,6 +289,12 @@ pub fn load_and_restore() {
 /// Shared startup logic: takes signing key bytes, pubkey bytes, seed phrase string,
 /// and nickname, then spawns the iroh node and message loop.
 pub fn start_node(sk_bytes: [u8; 32], pubkey_bytes: [u8; 32], seed_phrase: String, name: String) {
+    let status = CONNECTION_STATUS.read().clone();
+    if status == "connecting" || *NODE_STARTED.read() {
+        println!("[imax] start_node skipped (status={status})");
+        return;
+    }
+
     *SEED_PHRASE.write() = seed_phrase.clone();
     *SIGNING_KEY_BYTES.write() = sk_bytes;
     *NICKNAME.write() = name.clone();
