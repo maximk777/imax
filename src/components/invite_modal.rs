@@ -6,7 +6,7 @@ use imax_core::network::discovery::InviteCode;
 use imax_core::network::protocol::WireMessage;
 use crate::state::{
     SHOW_INVITE_MODAL, INVITE_CODE, NICKNAME, SIGNING_KEY_BYTES,
-    CONNECTION_STATUS, NODE_STARTED, CHATS, ChatPreview,
+    CONNECTION_STATUS, NODE_STARTED, CHATS, ChatPreview, register_peer_addr,
 };
 
 fn hex(bytes: &[u8]) -> String {
@@ -134,17 +134,20 @@ pub fn InviteModal() -> Element {
                                                     protocol_version: 1,
                                                 };
 
-                                                match node.send_to_addr(peer_addr, &hello).await {
+                                                match node.send_to_addr(peer_addr.clone(), &hello).await {
                                                     Ok(_) => {
                                                         let peer_name = format!("Peer {}", bs58::encode(&payload.public_key[..4]).into_string());
+                                                        let chat_id = format!("chat-{}", hex(&payload.node_id[..4]));
                                                         let chat = ChatPreview {
-                                                            id: format!("chat-{}", hex(&payload.node_id[..4])),
+                                                            id: chat_id.clone(),
                                                             peer_name,
                                                             last_message: "Connected!".into(),
                                                             time: "now".into(),
                                                             avatar_color: (payload.public_key[0] as usize) % 4,
                                                         };
                                                         CHATS.write().push(chat);
+                                                        // Register the peer's addr so outgoing messages can reach them
+                                                        register_peer_addr(chat_id, peer_addr);
                                                         *CONNECTION_STATUS.write() = "connected".into();
                                                         *SHOW_INVITE_MODAL.write() = false;
                                                     }

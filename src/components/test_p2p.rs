@@ -3,7 +3,11 @@ use imax_core::network::node::{IrohNode, ALPN};
 use imax_core::network::protocol::{self, WireMessage};
 use imax_core::network::discovery::{InviteCode, InvitePayload};
 use dioxus::prelude::ReadableExt;
-use crate::state::{CHATS, NICKNAME, SIGNING_KEY_BYTES, CONNECTION_STATUS, NODE_STARTED, INVITE_CODE, ChatPreview};
+use uuid::Uuid;
+use crate::state::{
+    CHATS, MESSAGES, NICKNAME, SIGNING_KEY_BYTES, CONNECTION_STATUS, NODE_STARTED,
+    INVITE_CODE, OUTGOING_TX, ChatPreview, Message, OutgoingMessage, get_peer_addr,
+};
 
 pub async fn run_test_p2p() -> Result<(), String> {
     let sk_bytes = *SIGNING_KEY_BYTES.read();
@@ -94,35 +98,130 @@ pub async fn run_test_p2p() -> Result<(), String> {
         println!("[test] Self-test passed!");
     }
 
-    // Keep our_node alive — start accept loop for incoming real connections
+    // Set up the outgoing message channel
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<OutgoingMessage>();
+    let _ = OUTGOING_TX.set(tx);
+
+    // Keep our_node alive — start accept loop for incoming real connections,
+    // and also handle outgoing messages from the UI.
     println!("[test] Listening for incoming connections...");
     tokio::spawn(async move {
         loop {
-            match our_node.accept_one().await {
-                Ok((msg, from_id)) => {
-                    println!("[imax] Incoming from {:?}: {:?}", from_id, msg);
-                    if let WireMessage::Hello { nickname, public_key, .. } = msg {
-                        let exists = CHATS.read().iter().any(|c| {
-                            c.id == format!("chat-{:02x}{:02x}", public_key[0], public_key[1])
-                        });
-                        if !exists {
-                            CHATS.write().push(ChatPreview {
-                                id: format!("chat-{:02x}{:02x}", public_key[0], public_key[1]),
-                                peer_name: nickname,
-                                last_message: "Connected!".into(),
-                                time: "now".into(),
-                                avatar_color: (public_key[0] as usize) % 4,
-                            });
+            tokio::select! {
+                // ── Incoming connection ──
+                accept_result = our_node.accept_one() => {
+                    match accept_result {
+                        Ok((msg, from_id)) => {
+                            println!("[imax] Incoming from {:?}: {:?}", from_id, msg);
+                            match msg {
+                                WireMessage::Hello { nickname, public_key, .. } => {
+                                    let chat_id = format!("chat-{:02x}{:02x}", public_key[0], public_key[1]);
+                                    let exists = CHATS.read().iter().any(|c| c.id == chat_id);
+                                    if !exists {
+                                        CHATS.write().push(ChatPreview {
+                                            id: chat_id,
+                                            peer_name: nickname,
+                                            last_message: "Connected!".into(),
+                                            time: "now".into(),
+                                            avatar_color: (public_key[0] as usize) % 4,
+                                        });
+                                    }
+                                }
+                                WireMessage::ChatMessage { id, ciphertext, timestamp, .. } => {
+                                    // For demo: ciphertext is actually plaintext UTF-8
+                                    let content = String::from_utf8(ciphertext)
+                                        .unwrap_or_else(|_| "(binary message)".to_string());
+                                    let msg_id = id.to_string();
+                                    let ts = format_timestamp(timestamp);
+
+                                    // Find the chat_id for this sender
+                                    let chat_id = {
+                                        let id_bytes = from_id.as_bytes();
+                                        format!("chat-{:02x}{:02x}", id_bytes[0], id_bytes[1])
+                                    };
+
+                                    // Update the chat preview last_message
+                                    {
+                                        let preview = content_preview(&content);
+                                        let mut chats = CHATS.write();
+                                        if let Some(c) = chats.iter_mut().find(|c| c.id == chat_id) {
+                                            c.last_message = preview;
+                                        }
+                                    }
+
+                                    // Only display if the message is for the active chat
+                                    let active = crate::state::ACTIVE_CHAT_ID.read().clone();
+                                    if active.as_deref() == Some(&chat_id) {
+                                        MESSAGES.write().push(Message {
+                                            id: msg_id,
+                                            content,
+                                            is_mine: false,
+                                            time: ts,
+                                            status: "received".into(),
+                                        });
+                                    }
+                                }
+                                _ => {
+                                    println!("[imax] Unhandled message type from {:?}", from_id);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            println!("[imax] Accept error: {e}");
+                            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                         }
                     }
                 }
-                Err(e) => {
-                    println!("[imax] Accept error: {e}");
-                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+                // ── Outgoing message from UI ──
+                Some(outgoing) = rx.recv() => {
+                    println!("[imax] Sending message to chat {}: {}", outgoing.chat_id, outgoing.text);
+
+                    match get_peer_addr(&outgoing.chat_id) {
+                        Some(peer_addr) => {
+                            let now = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs();
+
+                            let wire_msg = WireMessage::ChatMessage {
+                                id: Uuid::new_v4(),
+                                ciphertext: outgoing.text.into_bytes(),
+                                nonce: [0u8; 24],
+                                timestamp: now,
+                            };
+
+                            match our_node.send_to_addr(peer_addr, &wire_msg).await {
+                                Ok(_) => println!("[imax] Message sent successfully"),
+                                Err(e) => println!("[imax] Send error: {e}"),
+                            }
+                        }
+                        None => {
+                            println!("[imax] No peer addr for chat_id: {}", outgoing.chat_id);
+                        }
+                    }
                 }
             }
         }
     });
 
     Ok(())
+}
+
+fn format_timestamp(ts: u64) -> String {
+    // Simple HH:MM from unix seconds
+    let secs = ts % 86400;
+    let h = secs / 3600;
+    let m = (secs % 3600) / 60;
+    format!("{:02}:{:02}", h, m)
+}
+
+fn content_preview(s: &str) -> String {
+    if s.is_empty() {
+        "(message)".to_string()
+    } else if s.len() > 40 {
+        format!("{}…", &s[..40])
+    } else {
+        s.to_string()
+    }
 }

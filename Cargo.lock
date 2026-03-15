@@ -2790,6 +2790,7 @@ dependencies = [
  "imax-core",
  "iroh",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

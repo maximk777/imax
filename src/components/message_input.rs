@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use crate::state::{ACTIVE_CHAT_ID, MESSAGES, Message};
+use crate::state::{ACTIVE_CHAT_ID, MESSAGES, Message, OUTGOING_TX, OutgoingMessage};
 
 #[component]
 pub fn MessageInput() -> Element {
@@ -13,7 +13,7 @@ pub fn MessageInput() -> Element {
 
         // Append the new message to the global messages list.
         let active = ACTIVE_CHAT_ID.read().clone();
-        if active.is_some() {
+        if let Some(ref chat_id) = active {
             let msg = Message {
                 id: uuid(),
                 content: text.clone(),
@@ -22,6 +22,14 @@ pub fn MessageInput() -> Element {
                 status: "sent".into(),
             };
             MESSAGES.write().push(msg);
+
+            // Enqueue for P2P delivery
+            if let Some(tx) = OUTGOING_TX.get() {
+                let _ = tx.send(OutgoingMessage {
+                    chat_id: chat_id.clone(),
+                    text: text.clone(),
+                });
+            }
         }
 
         println!("[imax] send: {text}");
@@ -35,7 +43,7 @@ pub fn MessageInput() -> Element {
                 return;
             }
             let active = ACTIVE_CHAT_ID.read().clone();
-            if active.is_some() {
+            if let Some(ref chat_id) = active {
                 let msg = Message {
                     id: uuid(),
                     content: text.clone(),
@@ -44,6 +52,14 @@ pub fn MessageInput() -> Element {
                     status: "sent".into(),
                 };
                 MESSAGES.write().push(msg);
+
+                // Enqueue for P2P delivery
+                if let Some(tx) = OUTGOING_TX.get() {
+                    let _ = tx.send(OutgoingMessage {
+                        chat_id: chat_id.clone(),
+                        text: text.clone(),
+                    });
+                }
             }
             println!("[imax] send: {text}");
             *draft.write() = String::new();

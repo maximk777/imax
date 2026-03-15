@@ -13,3 +13,4 @@ dioxus = { version = "0.7", features = ["desktop"] }
 tokio = { version = "1", features = ["full"] }
 bs58 = "0.5"
 iroh = "0.96"
+uuid = { version = "1", features = ["v4"] }
