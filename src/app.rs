@@ -26,13 +26,20 @@ pub fn App() -> Element {
         let mut rx = rx;
         while let Some(update) = rx.recv().await {
             match update {
-                UiUpdate::PeerConnected { chat_id, peer_name, public_key_byte } => {
+                UiUpdate::PeerConnected { chat_id, peer_name, public_key_byte, peer_node_id, peer_pubkey } => {
                     let mut chats = CHATS.write();
                     if let Some(c) = chats.iter_mut().find(|c| c.id == chat_id) {
                         // Update name if we got a better one
                         if !peer_name.is_empty() && (c.peer_name.is_empty() || c.peer_name == "Unknown" || c.peer_name.starts_with("chat-") || c.peer_name.starts_with("Peer ")) {
                             c.peer_name = peer_name;
                             c.avatar_color = (public_key_byte as usize) % 4;
+                        }
+                        // Update peer info if not set yet
+                        if c.peer_node_id.is_none() {
+                            c.peer_node_id = Some(peer_node_id);
+                        }
+                        if c.peer_pubkey.is_none() {
+                            c.peer_pubkey = Some(peer_pubkey);
                         }
                     } else {
                         chats.push(ChatPreview {
@@ -41,6 +48,8 @@ pub fn App() -> Element {
                             last_message: "Connected!".into(),
                             time: local_time_now(),
                             avatar_color: (public_key_byte as usize) % 4,
+                            peer_node_id: Some(peer_node_id),
+                            peer_pubkey: Some(peer_pubkey),
                         });
                     }
                     // Find the chat we just updated/added and persist it

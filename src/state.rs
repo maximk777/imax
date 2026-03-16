@@ -20,6 +20,8 @@ pub enum UiUpdate {
         chat_id: String,
         peer_name: String,
         public_key_byte: u8,
+        peer_node_id: [u8; 32],
+        peer_pubkey: [u8; 32],
     },
     MessageReceived {
         chat_id: String,
@@ -46,6 +48,8 @@ pub struct ChatPreview {
     pub last_message: String,
     pub time: String,
     pub avatar_color: usize,
+    pub peer_node_id: Option<[u8; 32]>,
+    pub peer_pubkey: Option<[u8; 32]>,
 }
 
 /// A single message in the active conversation.
@@ -249,14 +253,42 @@ fn load_profile(profile_id: i64) {
                 }
             }
         }
+        for r in &chat_rows {
+            if let Some(ref nid) = r.peer_node_id {
+                if nid.len() == 32 {
+                    let mut arr = [0u8; 32];
+                    arr.copy_from_slice(nid);
+                    if let Ok(eid) = iroh::EndpointId::from_bytes(&arr) {
+                        register_peer(r.id.clone(), eid);
+                    }
+                }
+            }
+            if let Some(ref pk) = r.peer_pubkey {
+                if pk.len() == 32 {
+                    let mut arr = [0u8; 32];
+                    arr.copy_from_slice(pk);
+                    register_peer_pubkey(&r.id, arr);
+                }
+            }
+        }
         chats_vec = chat_rows
             .into_iter()
-            .map(|r| ChatPreview {
-                id: r.id,
-                peer_name: r.peer_name,
-                last_message: r.last_message,
-                time: r.time,
-                avatar_color: r.avatar_color as usize,
+            .map(|r| {
+                let peer_node_id = r.peer_node_id.as_ref().and_then(|b| {
+                    if b.len() == 32 { let mut a = [0u8; 32]; a.copy_from_slice(b); Some(a) } else { None }
+                });
+                let peer_pubkey = r.peer_pubkey.as_ref().and_then(|b| {
+                    if b.len() == 32 { let mut a = [0u8; 32]; a.copy_from_slice(b); Some(a) } else { None }
+                });
+                ChatPreview {
+                    id: r.id,
+                    peer_name: r.peer_name,
+                    last_message: r.last_message,
+                    time: r.time,
+                    avatar_color: r.avatar_color as usize,
+                    peer_node_id,
+                    peer_pubkey,
+                }
             })
             .collect();
     }
@@ -283,14 +315,45 @@ pub fn load_and_restore() {
 
             // Restore chats
             if let Ok(chat_rows) = models::get_all_chats(&db_guard, profile.id) {
+                // Restore peer connection info from DB
+                for r in &chat_rows {
+                    if let Some(ref nid) = r.peer_node_id {
+                        if nid.len() == 32 {
+                            let mut arr = [0u8; 32];
+                            arr.copy_from_slice(nid);
+                            if let Ok(eid) = iroh::EndpointId::from_bytes(&arr) {
+                                register_peer(r.id.clone(), eid);
+                                println!("[imax] Restored peer ID for chat {}", r.id);
+                            }
+                        }
+                    }
+                    if let Some(ref pk) = r.peer_pubkey {
+                        if pk.len() == 32 {
+                            let mut arr = [0u8; 32];
+                            arr.copy_from_slice(pk);
+                            register_peer_pubkey(&r.id, arr);
+                            println!("[imax] Restored peer pubkey for chat {}", r.id);
+                        }
+                    }
+                }
                 let chats: Vec<ChatPreview> = chat_rows
                     .into_iter()
-                    .map(|r| ChatPreview {
-                        id: r.id,
-                        peer_name: r.peer_name,
-                        last_message: r.last_message,
-                        time: r.time,
-                        avatar_color: r.avatar_color as usize,
+                    .map(|r| {
+                        let peer_node_id = r.peer_node_id.as_ref().and_then(|b| {
+                            if b.len() == 32 { let mut a = [0u8; 32]; a.copy_from_slice(b); Some(a) } else { None }
+                        });
+                        let peer_pubkey = r.peer_pubkey.as_ref().and_then(|b| {
+                            if b.len() == 32 { let mut a = [0u8; 32]; a.copy_from_slice(b); Some(a) } else { None }
+                        });
+                        ChatPreview {
+                            id: r.id,
+                            peer_name: r.peer_name,
+                            last_message: r.last_message,
+                            time: r.time,
+                            avatar_color: r.avatar_color as usize,
+                            peer_node_id,
+                            peer_pubkey,
+                        }
                     })
                     .collect();
 
@@ -432,6 +495,8 @@ pub fn db_upsert_chat(chat: &ChatPreview) {
     let db = db();
     if let Err(e) = models::upsert_chat(
         &db, &chat.id, profile_id, &chat.peer_name, &chat.last_message, &chat.time, chat.avatar_color as i32,
+        chat.peer_node_id.as_ref().map(|b| b.as_slice()),
+        chat.peer_pubkey.as_ref().map(|b| b.as_slice()),
     ) {
         eprintln!("[imax] Failed to upsert chat: {e}");
     }

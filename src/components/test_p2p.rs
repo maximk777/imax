@@ -55,6 +55,8 @@ pub fn start_message_loop(node: Arc<IrohNode>, _sk_bytes: [u8; 32], pubkey_bytes
                                             chat_id: chat_id.clone(),
                                             peer_name: peer_nick,
                                             public_key_byte: public_key[0],
+                                            peer_node_id: *from_id.as_bytes(),
+                                            peer_pubkey: public_key,
                                         });
                                     }
 
@@ -125,6 +127,8 @@ pub fn start_message_loop(node: Arc<IrohNode>, _sk_bytes: [u8; 32], pubkey_bytes
                                             chat_id: chat_id.clone(),
                                             peer_name: "Unknown".into(),
                                             public_key_byte: from_id.as_bytes()[0],
+                                            peer_node_id: *from_id.as_bytes(),
+                                            peer_pubkey: get_peer_pubkey(&chat_id).unwrap_or([0u8; 32]),
                                         });
                                         let preview = content_preview(&content);
                                         let _ = tx.send(UiUpdate::ChatPreviewUpdate {

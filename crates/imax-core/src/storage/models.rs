@@ -20,6 +20,8 @@ pub struct ChatRow {
     pub last_message: String,
     pub time: String,
     pub avatar_color: i32,
+    pub peer_node_id: Option<Vec<u8>>,
+    pub peer_pubkey: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone)]
@@ -147,11 +149,13 @@ pub fn upsert_chat(
     last_message: &str,
     time: &str,
     avatar_color: i32,
+    peer_node_id: Option<&[u8]>,
+    peer_pubkey: Option<&[u8]>,
 ) -> Result<()> {
     db.conn()
         .execute(
-            "INSERT OR REPLACE INTO chats (id, profile_id, peer_name, last_message, time, avatar_color) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![id, profile_id, peer_name, last_message, time, avatar_color],
+            "INSERT OR REPLACE INTO chats (id, profile_id, peer_name, last_message, time, avatar_color, peer_node_id, peer_pubkey) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![id, profile_id, peer_name, last_message, time, avatar_color, peer_node_id, peer_pubkey],
         )
         .map_err(|e| crate::Error::Storage(e.to_string()))?;
     Ok(())
@@ -160,7 +164,7 @@ pub fn upsert_chat(
 pub fn get_all_chats(db: &Database, profile_id: i64) -> Result<Vec<ChatRow>> {
     let mut stmt = db
         .conn()
-        .prepare("SELECT id, peer_name, last_message, time, avatar_color FROM chats WHERE profile_id = ?1")
+        .prepare("SELECT id, peer_name, last_message, time, avatar_color, peer_node_id, peer_pubkey FROM chats WHERE profile_id = ?1")
         .map_err(|e| crate::Error::Storage(e.to_string()))?;
     let rows = stmt
         .query_map(params![profile_id], |row| {
@@ -170,6 +174,8 @@ pub fn get_all_chats(db: &Database, profile_id: i64) -> Result<Vec<ChatRow>> {
                 last_message: row.get(2)?,
                 time: row.get(3)?,
                 avatar_color: row.get(4)?,
+                peer_node_id: row.get(5)?,
+                peer_pubkey: row.get(6)?,
             })
         })
         .map_err(|e| crate::Error::Storage(e.to_string()))?;
@@ -295,8 +301,8 @@ mod tests {
     fn test_upsert_and_get_chats() {
         let db = setup();
         let pid = create_profile(&db, "seed", "User").unwrap();
-        upsert_chat(&db, "chat-1", pid, "Alice", "Hello!", "12:00", 2).unwrap();
-        upsert_chat(&db, "chat-2", pid, "Bob", "Hi!", "12:01", 1).unwrap();
+        upsert_chat(&db, "chat-1", pid, "Alice", "Hello!", "12:00", 2, None, None).unwrap();
+        upsert_chat(&db, "chat-2", pid, "Bob", "Hi!", "12:01", 1, None, None).unwrap();
         let chats = get_all_chats(&db, pid).unwrap();
         assert_eq!(chats.len(), 2);
     }
@@ -306,8 +312,8 @@ mod tests {
         let db = setup();
         let p1 = create_profile(&db, "seed1", "Alice").unwrap();
         let p2 = create_profile(&db, "seed2", "Bob").unwrap();
-        upsert_chat(&db, "chat-1", p1, "Peer1", "", "", 0).unwrap();
-        upsert_chat(&db, "chat-2", p2, "Peer2", "", "", 0).unwrap();
+        upsert_chat(&db, "chat-1", p1, "Peer1", "", "", 0, None, None).unwrap();
+        upsert_chat(&db, "chat-2", p2, "Peer2", "", "", 0, None, None).unwrap();
         assert_eq!(get_all_chats(&db, p1).unwrap().len(), 1);
         assert_eq!(get_all_chats(&db, p2).unwrap().len(), 1);
     }
@@ -316,7 +322,7 @@ mod tests {
     fn test_update_chat_preview() {
         let db = setup();
         let pid = create_profile(&db, "seed", "User").unwrap();
-        upsert_chat(&db, "chat-1", pid, "Alice", "Hello!", "12:00", 2).unwrap();
+        upsert_chat(&db, "chat-1", pid, "Alice", "Hello!", "12:00", 2, None, None).unwrap();
         update_chat_preview(&db, "chat-1", pid, "Bye!").unwrap();
         let chats = get_all_chats(&db, pid).unwrap();
         assert_eq!(chats[0].last_message, "Bye!");
@@ -326,7 +332,7 @@ mod tests {
     fn test_insert_and_get_messages() {
         let db = setup();
         let pid = create_profile(&db, "seed", "User").unwrap();
-        upsert_chat(&db, "chat-1", pid, "Alice", "", "", 0).unwrap();
+        upsert_chat(&db, "chat-1", pid, "Alice", "", "", 0, None, None).unwrap();
         insert_message(&db, "m1", "chat-1", pid, "Hello!", true, "12:00", "sent").unwrap();
         insert_message(&db, "m2", "chat-1", pid, "Hi back!", false, "12:01", "sent").unwrap();
         let msgs = get_messages_for_chat(&db, "chat-1", pid).unwrap();
@@ -343,7 +349,7 @@ mod tests {
     fn test_delete_profile_cascades() {
         let db = setup();
         let pid = create_profile(&db, "seed", "User").unwrap();
-        upsert_chat(&db, "chat-1", pid, "Alice", "", "", 0).unwrap();
+        upsert_chat(&db, "chat-1", pid, "Alice", "", "", 0, None, None).unwrap();
         insert_message(&db, "m1", "chat-1", pid, "Hello!", true, "12:00", "sent").unwrap();
         delete_profile(&db, pid).unwrap();
         assert!(get_profile(&db, pid).unwrap().is_none());

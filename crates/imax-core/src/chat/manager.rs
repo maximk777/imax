@@ -58,7 +58,7 @@ impl ChatManager {
 
     pub fn add_contact_and_chat(&self, _peer_key: &[u8; 32], nickname: &str) -> Result<ChatId> {
         let id = Uuid::new_v4().to_string();
-        models::upsert_chat(&self.db, &id, self.profile_id, nickname, "", "", 0)?;
+        models::upsert_chat(&self.db, &id, self.profile_id, nickname, "", "", 0, None, None)?;
         Ok(id)
     }
 

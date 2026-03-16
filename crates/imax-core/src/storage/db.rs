@@ -147,6 +147,11 @@ fn migrations() -> Migrations<'static> {
             CREATE INDEX idx_messages_chat_v3 ON messages(chat_id, profile_id, seq);
             CREATE INDEX idx_chats_profile ON chats(profile_id);"
         ),
+        // V4: Persist peer connection info for reconnect after restart
+        M::up(
+            "ALTER TABLE chats ADD COLUMN peer_node_id BLOB;
+             ALTER TABLE chats ADD COLUMN peer_pubkey BLOB;"
+        ),
     ])
 }
 

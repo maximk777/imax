@@ -141,6 +141,8 @@ pub fn InviteModal() -> Element {
                                                     last_message: "Connected!".into(),
                                                     time: local_time_now(),
                                                     avatar_color: (payload.public_key[0] as usize) % 4,
+                                                    peer_node_id: Some(payload.node_id),
+                                                    peer_pubkey: Some(payload.public_key),
                                                 };
                                                 CHATS.write().push(chat.clone());
                                                 db_upsert_chat(&chat);
