@@ -1,8 +1,10 @@
 use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
 use iroh::endpoint::Connection;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::time::Duration;
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 use crate::Result;
 use crate::network::protocol::{self, WireMessage};
 
@@ -11,6 +13,9 @@ pub const ALPN: &[u8] = b"imax/1";
 pub struct IrohNode {
     endpoint: Endpoint,
     connections: Mutex<HashMap<EndpointId, Connection>>,
+    /// Channel to register new outgoing connections for stream listening.
+    /// Set by `run_accept_loop`, used by `send_to_peer`/`send_to_addr`.
+    conn_register_tx: Mutex<Option<mpsc::UnboundedSender<(Connection, EndpointId)>>>,
 }
 
 impl IrohNode {
@@ -24,6 +29,7 @@ impl IrohNode {
         Ok(Self {
             endpoint,
             connections: Mutex::new(HashMap::new()),
+            conn_register_tx: Mutex::new(None),
         })
     }
 
@@ -36,6 +42,8 @@ impl IrohNode {
     }
 
     /// Get a cached connection or create a new one to the given peer.
+    /// If a new connection is created and an accept loop is running,
+    /// registers it for stream listening.
     async fn get_or_connect(&self, node_id: EndpointId) -> Result<Connection> {
         // 1. Check cache
         {
@@ -51,6 +59,10 @@ impl IrohNode {
             .map_err(|e| crate::Error::Network(format!("connect error: {e}")))?;
         // 3. Cache it
         self.connections.lock().unwrap().insert(node_id, conn.clone());
+        // 4. Register for stream listening
+        if let Some(tx) = self.conn_register_tx.lock().unwrap().as_ref() {
+            let _ = tx.send((conn.clone(), node_id));
+        }
         Ok(conn)
     }
 
@@ -89,6 +101,10 @@ impl IrohNode {
                 let c = self.endpoint.connect(addr, ALPN).await
                     .map_err(|e| crate::Error::Network(format!("connect error: {e}")))?;
                 self.connections.lock().unwrap().insert(peer_id, c.clone());
+                // Register for stream listening
+                if let Some(tx) = self.conn_register_tx.lock().unwrap().as_ref() {
+                    let _ = tx.send((c.clone(), peer_id));
+                }
                 c
             }
         };
@@ -147,6 +163,61 @@ impl IrohNode {
         Ok((msg, remote_id))
     }
 
+    /// Start an accept loop that handles both new connections and new streams
+    /// on existing connections. Sends received messages to the returned channel.
+    /// Also listens for streams on outgoing connections registered via send_to_peer/send_to_addr.
+    /// Runs until the CancellationToken is cancelled.
+    pub fn run_accept_loop(
+        self: &std::sync::Arc<Self>,
+        cancel: CancellationToken,
+    ) -> mpsc::UnboundedReceiver<(WireMessage, EndpointId)> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let (conn_reg_tx, mut conn_reg_rx) = mpsc::unbounded_channel::<(Connection, EndpointId)>();
+
+        // Store the registration channel so send_to_peer/send_to_addr can use it
+        *self.conn_register_tx.lock().unwrap() = Some(conn_reg_tx);
+
+        let node = std::sync::Arc::clone(self);
+
+        tokio::spawn(async move {
+            // Track which connections already have a stream listener
+            let mut listening: HashSet<EndpointId> = HashSet::new();
+
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+
+                    // New incoming connection
+                    incoming = node.endpoint.accept() => {
+                        let Some(incoming) = incoming else { break };
+                        let conn = match incoming.await {
+                            Ok(c) => c,
+                            Err(e) => {
+                                println!("[imax] accept handshake error: {e}");
+                                continue;
+                            }
+                        };
+                        let remote_id = conn.remote_id();
+                        node.connections.lock().unwrap().insert(remote_id, conn.clone());
+
+                        if listening.insert(remote_id) {
+                            spawn_stream_listener(conn, remote_id, tx.clone(), cancel.clone());
+                        }
+                    }
+
+                    // Outgoing connection registered for stream listening
+                    Some((conn, remote_id)) = conn_reg_rx.recv() => {
+                        if listening.insert(remote_id) {
+                            spawn_stream_listener(conn, remote_id, tx.clone(), cancel.clone());
+                        }
+                    }
+                }
+            }
+        });
+
+        rx
+    }
+
     /// Clear all cached connections.
     pub fn clear_connections(&self) {
         self.connections.lock().unwrap().clear();
@@ -159,10 +230,51 @@ impl IrohNode {
 
     /// Shut down the node, closing all QUIC connections and the endpoint.
     pub async fn shutdown(&self) -> Result<()> {
+        // Drop the registration channel
+        *self.conn_register_tx.lock().unwrap() = None;
         self.clear_connections();
         self.endpoint.close().await;
         Ok(())
     }
+}
+
+/// Spawn a task that listens for incoming bi-streams on a connection
+/// and forwards decoded messages to the tx channel.
+fn spawn_stream_listener(
+    conn: Connection,
+    remote_id: EndpointId,
+    tx: mpsc::UnboundedSender<(WireMessage, EndpointId)>,
+    cancel: CancellationToken,
+) {
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => break,
+                stream = conn.accept_bi() => {
+                    match stream {
+                        Ok((_send, mut recv)) => {
+                            let bytes = match recv.read_to_end(16 * 1024 * 1024).await {
+                                Ok(b) => b,
+                                Err(e) => {
+                                    println!("[imax] stream read error from {remote_id:?}: {e}");
+                                    continue;
+                                }
+                            };
+                            let _ = recv.stop(0u32.into());
+                            match protocol::decode_frame(&bytes) {
+                                Ok(Some((msg, _))) => {
+                                    let _ = tx.send((msg, remote_id));
+                                }
+                                Ok(None) => println!("[imax] incomplete frame from {remote_id:?}"),
+                                Err(e) => println!("[imax] decode error from {remote_id:?}: {e}"),
+                            }
+                        }
+                        Err(_) => break, // connection closed
+                    }
+                }
+            }
+        }
+    });
 }
 
 #[cfg(test)]

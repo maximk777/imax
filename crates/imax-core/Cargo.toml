@@ -20,6 +20,7 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 rusqlite_migration = "1"
 postcard = { version = "1", features = ["alloc"] }
 iroh = "0.96"
+tokio-util = "0.7"
 bytes = "1"
 bs58 = "0.5"
 

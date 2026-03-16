@@ -6,8 +6,9 @@ use imax_core::identity::keypair;
 use imax_core::crypto::e2e;
 use iroh::SecretKey;
 use ed25519_dalek::SigningKey;
+use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 #[tokio::main]
@@ -49,8 +50,8 @@ async fn main() {
     let key_alice = SecretKey::from_bytes(&[1u8; 32]);
     let key_bob = SecretKey::from_bytes(&[2u8; 32]);
 
-    let alice = IrohNode::new(key_alice).await.expect("alice node creation failed");
-    let bob = IrohNode::new(key_bob).await.expect("bob node creation failed");
+    let alice = Arc::new(IrohNode::new(key_alice).await.expect("alice node creation failed"));
+    let bob = Arc::new(IrohNode::new(key_bob).await.expect("bob node creation failed"));
 
     let alice_id = alice.node_id();
     let bob_id = bob.node_id();
@@ -67,90 +68,10 @@ async fn main() {
     let alice_addr = alice.endpoint().addr();
     let bob_addr = bob.endpoint().addr();
 
-    // Channel for received messages
-    let (alice_tx, mut alice_rx) = mpsc::channel::<(WireMessage, iroh::EndpointId)>(16);
-    let (bob_tx, mut bob_rx) = mpsc::channel::<(WireMessage, iroh::EndpointId)>(16);
-
-    // Spawn accept loops
-    let alice_accept = {
-        let tx = alice_tx;
-        let endpoint = alice.endpoint().clone();
-        tokio::spawn(async move {
-            loop {
-                let incoming = match endpoint.accept().await {
-                    Some(inc) => inc,
-                    None => break,
-                };
-                let conn = match incoming.await {
-                    Ok(c) => c,
-                    Err(e) => {
-                        eprintln!("[alice] Accept error: {e}");
-                        continue;
-                    }
-                };
-                let remote_id = conn.remote_id();
-                let (_, mut recv) = match conn.accept_bi().await {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("[alice] accept_bi error: {e}");
-                        continue;
-                    }
-                };
-                let bytes = match recv.read_to_end(16 * 1024 * 1024).await {
-                    Ok(b) => b,
-                    Err(e) => {
-                        eprintln!("[alice] read error: {e}");
-                        continue;
-                    }
-                };
-                let _ = recv.stop(0u32.into());
-                let (msg, _) = imax_core::network::protocol::decode_frame(&bytes)
-                    .expect("decode failed")
-                    .expect("incomplete frame");
-                let _ = tx.send((msg, remote_id)).await;
-            }
-        })
-    };
-
-    let bob_accept = {
-        let tx = bob_tx;
-        let endpoint = bob.endpoint().clone();
-        tokio::spawn(async move {
-            loop {
-                let incoming = match endpoint.accept().await {
-                    Some(inc) => inc,
-                    None => break,
-                };
-                let conn = match incoming.await {
-                    Ok(c) => c,
-                    Err(e) => {
-                        eprintln!("[bob] Accept error: {e}");
-                        continue;
-                    }
-                };
-                let remote_id = conn.remote_id();
-                let (_, mut recv) = match conn.accept_bi().await {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("[bob] accept_bi error: {e}");
-                        continue;
-                    }
-                };
-                let bytes = match recv.read_to_end(16 * 1024 * 1024).await {
-                    Ok(b) => b,
-                    Err(e) => {
-                        eprintln!("[bob] read error: {e}");
-                        continue;
-                    }
-                };
-                let _ = recv.stop(0u32.into());
-                let (msg, _) = imax_core::network::protocol::decode_frame(&bytes)
-                    .expect("decode failed")
-                    .expect("incomplete frame");
-                let _ = tx.send((msg, remote_id)).await;
-            }
-        })
-    };
+    // Start accept loops using run_accept_loop
+    let cancel = CancellationToken::new();
+    let mut alice_rx = alice.run_accept_loop(cancel.clone());
+    let mut bob_rx = bob.run_accept_loop(cancel.clone());
 
     // --- Test 1: Alice sends Hello to Bob via full address ---
     print!("[alice→bob] Sending Hello... ");
@@ -551,8 +472,7 @@ async fn main() {
     }
 
     // Cleanup
-    alice_accept.abort();
-    bob_accept.abort();
+    cancel.cancel();
     alice.shutdown().await.ok();
     bob.shutdown().await.ok();
 }

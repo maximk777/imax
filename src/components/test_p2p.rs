@@ -22,6 +22,10 @@ pub fn start_message_loop(node: Arc<IrohNode>, sk_bytes: [u8; 32], pubkey_bytes:
     *OUTGOING_TX.lock().unwrap() = Some(tx);
 
     println!("[imax] Starting message loop...");
+
+    // Start the accept loop that handles new connections AND new streams
+    let mut incoming_rx = node.run_accept_loop(cancel.clone());
+
     tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -31,143 +35,135 @@ pub fn start_message_loop(node: Arc<IrohNode>, sk_bytes: [u8; 32], pubkey_bytes:
                     break;
                 }
 
-                // ── Incoming connection ──
-                accept_result = node.accept_one() => {
-                    match accept_result {
-                        Ok((msg, from_id)) => {
-                            println!("[imax] Incoming from {:?}: {:?}", from_id, msg);
-                            match msg {
-                                WireMessage::Hello { nickname: peer_nick, public_key, .. } => {
-                                    let id_bytes = from_id.as_bytes();
-                                    let chat_id = format!("chat-{}", hex(&id_bytes[..4]));
+                // ── Incoming message (from any connection/stream) ──
+                Some((msg, from_id)) = incoming_rx.recv() => {
+                    println!("[imax] Incoming from {:?}: {:?}", from_id, msg);
+                    match msg {
+                        WireMessage::Hello { nickname: peer_nick, public_key, .. } => {
+                            let id_bytes = from_id.as_bytes();
+                            let chat_id = format!("chat-{}", hex(&id_bytes[..4]));
 
-                                    // Check if peer is already registered (prevents Hello loop)
-                                    let already_known = {
-                                        get_peer_id(&chat_id).is_some()
-                                    };
+                            // Check if peer is already registered (prevents Hello loop)
+                            let already_known = {
+                                get_peer_id(&chat_id).is_some()
+                            };
 
-                                    // Register peer ID — iroh caches their transport addresses
-                                    register_peer(chat_id.clone(), from_id);
+                            // Register peer ID — iroh caches their transport addresses
+                            register_peer(chat_id.clone(), from_id);
 
-                                    // Notify UI via channel (not direct GlobalSignal access)
-                                    if let Some(tx) = UI_UPDATE_TX.get() {
-                                        let _ = tx.send(UiUpdate::PeerConnected {
-                                            chat_id: chat_id.clone(),
-                                            peer_name: peer_nick,
-                                            public_key_byte: public_key[0],
-                                            peer_node_id: *from_id.as_bytes(),
-                                            peer_pubkey: public_key,
-                                        });
-                                    }
+                            // Notify UI via channel (not direct GlobalSignal access)
+                            if let Some(tx) = UI_UPDATE_TX.get() {
+                                let _ = tx.send(UiUpdate::PeerConnected {
+                                    chat_id: chat_id.clone(),
+                                    peer_name: peer_nick,
+                                    public_key_byte: public_key[0],
+                                    peer_node_id: *from_id.as_bytes(),
+                                    peer_pubkey: public_key,
+                                });
+                            }
 
-                                    // Store peer's public key for E2E encryption
-                                    register_peer_pubkey(&chat_id, public_key);
+                            // Store peer's public key for E2E encryption
+                            register_peer_pubkey(&chat_id, public_key);
 
-                                    // Auto-respond with our Hello if this is a new peer
-                                    if !already_known {
-                                        let hello_back = WireMessage::Hello {
-                                            public_key: pubkey_bytes,
-                                            nickname: nickname.clone(),
-                                            protocol_version: 1,
-                                        };
-                                        if let Err(e) = node.send_to_peer(from_id, &hello_back).await {
-                                            println!("[imax] Failed to send Hello back: {e}");
-                                        }
-                                    }
-                                }
-                                WireMessage::ChatMessage { id, ciphertext, nonce, timestamp } => {
-                                    let chat_id = {
-                                        let id_bytes = from_id.as_bytes();
-                                        format!("chat-{}", hex(&id_bytes[..4]))
-                                    };
-
-                                    let content = {
-                                        let sk_local = sk_bytes;
-                                        let peer_pk = get_peer_pubkey(&chat_id);
-
-                                        if nonce == [0u8; 24] {
-                                            // Unencrypted message (legacy/fallback)
-                                            String::from_utf8(ciphertext)
-                                                .unwrap_or_else(|_| "(binary message)".to_string())
-                                        } else if let Some(pk) = peer_pk {
-                                            match get_or_derive_sym_key(&chat_id, &sk_local, &pk) {
-                                                Some(sym_key) => {
-                                                    match imax_core::crypto::e2e::decrypt(&sym_key, &ciphertext, &nonce, id.as_bytes()) {
-                                                        Ok(plaintext) => String::from_utf8(plaintext)
-                                                            .unwrap_or_else(|_| "(binary)".to_string()),
-                                                        Err(e) => {
-                                                            println!("[imax] Decrypt error: {e}");
-                                                            "(encrypted message - decryption failed)".to_string()
-                                                        }
-                                                    }
-                                                }
-                                                None => "(encrypted message - no key)".to_string(),
-                                            }
-                                        } else {
-                                            "(encrypted message - unknown peer)".to_string()
-                                        }
-                                    };
-
-                                    let msg_id = id.to_string();
-                                    let ts = format_timestamp(timestamp);
-
-                                    // Send Ack::Delivered back to peer
-                                    let ack = WireMessage::Ack {
-                                        message_id: id,
-                                        status: AckStatus::Delivered,
-                                    };
-                                    if let Err(e) = node.send_to_peer(from_id, &ack).await {
-                                        println!("[imax] Failed to send Delivered ack: {e}");
-                                    }
-
-                                    // Notify UI via channel
-                                    if let Some(tx) = UI_UPDATE_TX.get() {
-                                        // Ensure chat exists before delivering message
-                                        let _ = tx.send(UiUpdate::PeerConnected {
-                                            chat_id: chat_id.clone(),
-                                            peer_name: "Unknown".into(),
-                                            public_key_byte: from_id.as_bytes()[0],
-                                            peer_node_id: *from_id.as_bytes(),
-                                            peer_pubkey: get_peer_pubkey(&chat_id).unwrap_or([0u8; 32]),
-                                        });
-                                        let preview = content_preview(&content);
-                                        let _ = tx.send(UiUpdate::ChatPreviewUpdate {
-                                            chat_id: chat_id.clone(),
-                                            last_message: preview,
-                                        });
-                                        let _ = tx.send(UiUpdate::MessageReceived {
-                                            chat_id,
-                                            message: Message {
-                                                id: msg_id,
-                                                content,
-                                                is_mine: false,
-                                                time: ts,
-                                                status: "delivered".into(),
-                                            },
-                                        });
-                                    }
-                                }
-                                WireMessage::Ack { message_id, status } => {
-                                    let new_status = match status {
-                                        AckStatus::Delivered => "delivered",
-                                        AckStatus::Read => "read",
-                                    };
-                                    println!("[imax] Ack received: msg={message_id} status={new_status}");
-                                    if let Some(tx) = UI_UPDATE_TX.get() {
-                                        let _ = tx.send(UiUpdate::MessageStatusUpdate {
-                                            message_id: message_id.to_string(),
-                                            status: new_status.to_string(),
-                                        });
-                                    }
-                                }
-                                _ => {
-                                    println!("[imax] Unhandled message type from {:?}", from_id);
+                            // Auto-respond with our Hello if this is a new peer
+                            if !already_known {
+                                let hello_back = WireMessage::Hello {
+                                    public_key: pubkey_bytes,
+                                    nickname: nickname.clone(),
+                                    protocol_version: 1,
+                                };
+                                if let Err(e) = node.send_to_peer(from_id, &hello_back).await {
+                                    println!("[imax] Failed to send Hello back: {e}");
                                 }
                             }
                         }
-                        Err(e) => {
-                            println!("[imax] Accept error: {e}");
-                            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        WireMessage::ChatMessage { id, ciphertext, nonce, timestamp } => {
+                            let chat_id = {
+                                let id_bytes = from_id.as_bytes();
+                                format!("chat-{}", hex(&id_bytes[..4]))
+                            };
+
+                            let content = {
+                                let sk_local = sk_bytes;
+                                let peer_pk = get_peer_pubkey(&chat_id);
+
+                                if nonce == [0u8; 24] {
+                                    // Unencrypted message (legacy/fallback)
+                                    String::from_utf8(ciphertext)
+                                        .unwrap_or_else(|_| "(binary message)".to_string())
+                                } else if let Some(pk) = peer_pk {
+                                    match get_or_derive_sym_key(&chat_id, &sk_local, &pk) {
+                                        Some(sym_key) => {
+                                            match imax_core::crypto::e2e::decrypt(&sym_key, &ciphertext, &nonce, id.as_bytes()) {
+                                                Ok(plaintext) => String::from_utf8(plaintext)
+                                                    .unwrap_or_else(|_| "(binary)".to_string()),
+                                                Err(e) => {
+                                                    println!("[imax] Decrypt error: {e}");
+                                                    "(encrypted message - decryption failed)".to_string()
+                                                }
+                                            }
+                                        }
+                                        None => "(encrypted message - no key)".to_string(),
+                                    }
+                                } else {
+                                    "(encrypted message - unknown peer)".to_string()
+                                }
+                            };
+
+                            let msg_id = id.to_string();
+                            let ts = format_timestamp(timestamp);
+
+                            // Send Ack::Delivered back to peer
+                            let ack = WireMessage::Ack {
+                                message_id: id,
+                                status: AckStatus::Delivered,
+                            };
+                            if let Err(e) = node.send_to_peer(from_id, &ack).await {
+                                println!("[imax] Failed to send Delivered ack: {e}");
+                            }
+
+                            // Notify UI via channel
+                            if let Some(tx) = UI_UPDATE_TX.get() {
+                                // Ensure chat exists before delivering message
+                                let _ = tx.send(UiUpdate::PeerConnected {
+                                    chat_id: chat_id.clone(),
+                                    peer_name: "Unknown".into(),
+                                    public_key_byte: from_id.as_bytes()[0],
+                                    peer_node_id: *from_id.as_bytes(),
+                                    peer_pubkey: get_peer_pubkey(&chat_id).unwrap_or([0u8; 32]),
+                                });
+                                let preview = content_preview(&content);
+                                let _ = tx.send(UiUpdate::ChatPreviewUpdate {
+                                    chat_id: chat_id.clone(),
+                                    last_message: preview,
+                                });
+                                let _ = tx.send(UiUpdate::MessageReceived {
+                                    chat_id,
+                                    message: Message {
+                                        id: msg_id,
+                                        content,
+                                        is_mine: false,
+                                        time: ts,
+                                        status: "delivered".into(),
+                                    },
+                                });
+                            }
+                        }
+                        WireMessage::Ack { message_id, status } => {
+                            let new_status = match status {
+                                AckStatus::Delivered => "delivered",
+                                AckStatus::Read => "read",
+                            };
+                            println!("[imax] Ack received: msg={message_id} status={new_status}");
+                            if let Some(tx) = UI_UPDATE_TX.get() {
+                                let _ = tx.send(UiUpdate::MessageStatusUpdate {
+                                    message_id: message_id.to_string(),
+                                    status: new_status.to_string(),
+                                });
+                            }
+                        }
+                        _ => {
+                            println!("[imax] Unhandled message type from {:?}", from_id);
                         }
                     }
                 }

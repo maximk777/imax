@@ -2817,6 +2817,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
  "uuid",
  "x25519-dalek",
 ]
