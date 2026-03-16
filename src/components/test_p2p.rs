@@ -347,7 +347,8 @@ fn content_preview(s: &str) -> String {
     if s.is_empty() {
         "(message)".to_string()
     } else if s.len() > 40 {
-        format!("{}…", &s[..40])
+        let end = s.floor_char_boundary(40);
+        format!("{}…", &s[..end])
     } else {
         s.to_string()
     }
