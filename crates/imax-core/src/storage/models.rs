@@ -356,4 +356,62 @@ mod tests {
         assert_eq!(get_all_chats(&db, pid).unwrap().len(), 0);
         assert_eq!(get_messages_for_chat(&db, "chat-1", pid).unwrap().len(), 0);
     }
+
+    #[test]
+    fn test_peer_info_persisted_and_restored() {
+        let db = setup();
+        let pid = create_profile(&db, "seed", "User").unwrap();
+
+        let node_id = [42u8; 32];
+        let pubkey = [7u8; 32];
+
+        // Save chat with peer info
+        upsert_chat(
+            &db, "chat-peer", pid, "Alice", "Hello!", "12:00", 2,
+            Some(&node_id), Some(&pubkey),
+        ).unwrap();
+
+        // Load back and verify peer info is restored
+        let chats = get_all_chats(&db, pid).unwrap();
+        assert_eq!(chats.len(), 1);
+        let chat = &chats[0];
+        assert_eq!(chat.id, "chat-peer");
+        assert_eq!(chat.peer_node_id.as_deref(), Some(node_id.as_slice()));
+        assert_eq!(chat.peer_pubkey.as_deref(), Some(pubkey.as_slice()));
+    }
+
+    #[test]
+    fn test_peer_info_null_for_old_chats() {
+        let db = setup();
+        let pid = create_profile(&db, "seed", "User").unwrap();
+
+        // Save chat without peer info (simulates old/legacy chat)
+        upsert_chat(&db, "chat-old", pid, "Bob", "Hi", "13:00", 1, None, None).unwrap();
+
+        let chats = get_all_chats(&db, pid).unwrap();
+        assert_eq!(chats.len(), 1);
+        assert!(chats[0].peer_node_id.is_none());
+        assert!(chats[0].peer_pubkey.is_none());
+    }
+
+    #[test]
+    fn test_peer_info_updated_on_upsert() {
+        let db = setup();
+        let pid = create_profile(&db, "seed", "User").unwrap();
+
+        // First create without peer info
+        upsert_chat(&db, "chat-up", pid, "Eve", "", "", 0, None, None).unwrap();
+        let chats = get_all_chats(&db, pid).unwrap();
+        assert!(chats[0].peer_node_id.is_none());
+
+        // Upsert with peer info
+        let node_id = [99u8; 32];
+        let pubkey = [88u8; 32];
+        upsert_chat(&db, "chat-up", pid, "Eve", "hey", "14:00", 0, Some(&node_id), Some(&pubkey)).unwrap();
+
+        let chats = get_all_chats(&db, pid).unwrap();
+        assert_eq!(chats.len(), 1);
+        assert_eq!(chats[0].peer_node_id.as_deref(), Some(node_id.as_slice()));
+        assert_eq!(chats[0].peer_pubkey.as_deref(), Some(pubkey.as_slice()));
+    }
 }

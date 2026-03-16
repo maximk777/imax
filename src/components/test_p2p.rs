@@ -16,7 +16,7 @@ use crate::state::{
 
 /// Start the shared accept + outgoing message loop on the global node.
 /// Each call starts a new loop (previous one should be cancelled via CancellationToken).
-pub fn start_message_loop(node: Arc<IrohNode>, _sk_bytes: [u8; 32], pubkey_bytes: [u8; 32], nickname: String, cancel: CancellationToken) {
+pub fn start_message_loop(node: Arc<IrohNode>, sk_bytes: [u8; 32], pubkey_bytes: [u8; 32], nickname: String, cancel: CancellationToken) {
     // Set up the outgoing message channel
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<OutgoingMessage>();
     *OUTGOING_TX.lock().unwrap() = Some(tx);
@@ -82,7 +82,7 @@ pub fn start_message_loop(node: Arc<IrohNode>, _sk_bytes: [u8; 32], pubkey_bytes
                                     };
 
                                     let content = {
-                                        let sk_local = *SIGNING_KEY_BYTES.read();
+                                        let sk_local = sk_bytes;
                                         let peer_pk = get_peer_pubkey(&chat_id);
 
                                         if nonce == [0u8; 24] {
@@ -185,7 +185,7 @@ pub fn start_message_loop(node: Arc<IrohNode>, _sk_bytes: [u8; 32], pubkey_bytes
 
                             let msg_id = Uuid::new_v4();
                             let peer_pk = get_peer_pubkey(&outgoing.chat_id);
-                            let sk_local = *SIGNING_KEY_BYTES.read();
+                            let sk_local = sk_bytes;
 
                             let (ciphertext, nonce) = match peer_pk {
                                 Some(pk) => {
